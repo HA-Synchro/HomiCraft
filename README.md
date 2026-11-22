@@ -42,6 +42,18 @@ python runner.py examples/counter_app
 
 ---
 
+## 🎨 Official Catppuccin Themes & Modern UI
+
+HomiCraft now includes the complete palette suite from [catppuccin.com](https://catppuccin.com/palette/) with rounded-corner UI styling:
+* 🌿 **Catppuccin Mocha** (Default Deep Dark)
+* ☕ **Catppuccin Macchiato** (Medium Dark Contrast)
+* 🍨 **Catppuccin Frappé** (Soft Dark Pastel)
+* 🥛 **Catppuccin Latte** (Crisp Light Theme)
+
+Switch between them on the fly from the **`🎨 Theme`** selector in the main toolbar! The code editor, docks, rounded buttons, and inputs update their color schemes and syntax highlighting instantly.
+
+---
+
 ## 🎮 Keyboard Shortcuts & Workflow
 
 * **Drag Node from Hierarchy to Script (Godot style):** Drag any node (e.g. `button_1`, `lbl_title`) from the Scene Hierarchy dock directly into the Script Editor!

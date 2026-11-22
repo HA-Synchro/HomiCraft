@@ -2,7 +2,8 @@
 HomiCraft IDE Main Window
 The central visual development environment integrating Canvas, Hierarchy,
 FileSystem Dock, Inspector, Multi-Script Editor, App Runner, and Standalone Exporter.
-Supports full Godot-style dock rearranging, nesting, tab merging, and drag-and-drop script attachment.
+Styled with official Catppuccin palettes (Mocha, Macchiato, Frappé, Latte)
+and rounded-corner UI inspired by catppuccin.com.
 """
 
 import os
@@ -13,9 +14,9 @@ from typing import Optional
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QDockWidget, QTabWidget, QVBoxLayout,
     QHBoxLayout, QToolBar, QPushButton, QLabel, QFileDialog,
-    QPlainTextEdit, QScrollArea, QMessageBox, QCheckBox
+    QPlainTextEdit, QScrollArea, QMessageBox, QCheckBox, QComboBox
 )
-from PySide6.QtCore import Qt, QProcess, QByteArray
+from PySide6.QtCore import Qt, QProcess, QSettings
 from PySide6.QtGui import QAction, QIcon, QKeySequence
 
 from core.schema import (
@@ -30,6 +31,7 @@ from editor.filesystem import FileSystemDock
 from editor.inspector import InspectorDock
 from editor.code_editor import ScriptEditorTab
 from editor.export_dialog import ExportDialog
+from editor.theme import build_catppuccin_stylesheet, CATPPUCCIN_PALETTES
 
 
 class HomiCraftEditorWindow(QMainWindow):
@@ -45,6 +47,10 @@ class HomiCraftEditorWindow(QMainWindow):
         # Background runner process (F5)
         self.runner_process: Optional[QProcess] = None
 
+        # Current Catppuccin flavor
+        settings = QSettings("HomiCraft", "Theme")
+        self.current_flavor = settings.value("flavor", "Mocha")
+
         # Full dock flexibility: allow nesting, tab grouping, and moving everywhere!
         self.setDockOptions(
             QMainWindow.DockOption.AnimatedDocks |
@@ -54,6 +60,7 @@ class HomiCraftEditorWindow(QMainWindow):
         )
 
         self._init_ui()
+        self.apply_theme(self.current_flavor)
 
         if project_dir and os.path.isdir(project_dir):
             self.load_project(project_dir)
@@ -65,64 +72,6 @@ class HomiCraftEditorWindow(QMainWindow):
                 self.new_default_project()
 
     def _init_ui(self) -> None:
-        self.setStyleSheet("""
-            QMainWindow {
-                background-color: #16161c;
-                color: #e0e0e0;
-            }
-            QMainWindow::separator {
-                background: #2b2b38;
-                width: 4px;
-                height: 4px;
-            }
-            QMainWindow::separator:hover {
-                background: #4ecdc4;
-            }
-            QToolBar {
-                background-color: #202028;
-                border-bottom: 1px solid #333340;
-                spacing: 8px;
-                padding: 4px;
-            }
-            QDockWidget {
-                background-color: #1e1e24;
-                color: #e0e0e0;
-                font-weight: bold;
-            }
-            QDockWidget::title {
-                background-color: #262630;
-                padding: 6px;
-                border-radius: 4px;
-            }
-            QTabWidget::pane {
-                border: 1px solid #333340;
-                background-color: #18181f;
-            }
-            QTabBar::tab {
-                background: #25252e;
-                color: #b0bec5;
-                padding: 8px 16px;
-                margin-right: 2px;
-                border-top-left-radius: 6px;
-                border-top-right-radius: 6px;
-            }
-            QTabBar::tab:selected {
-                background: #37474f;
-                color: #4ecdc4;
-                font-weight: bold;
-            }
-            QPushButton {
-                background-color: #2e2e38;
-                color: #ffffff;
-                border: 1px solid #404050;
-                border-radius: 4px;
-                padding: 5px 10px;
-            }
-            QPushButton:hover {
-                background-color: #3e3e4a;
-            }
-        """)
-
         # Central Workspace Tabs (Canvas + Script Editor)
         self.center_tabs = QTabWidget(self)
         self.setCentralWidget(self.center_tabs)
@@ -131,14 +80,14 @@ class HomiCraftEditorWindow(QMainWindow):
         self.canvas_scroll = QScrollArea(self)
         self.canvas_scroll.setWidgetResizable(True)
         self.canvas_scroll.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.canvas_scroll.setStyleSheet("background-color: #121217; border: none;")
+        self.canvas_scroll.setStyleSheet("background-color: transparent; border: none;")
 
         self.canvas = DesignCanvas(self)
         self.canvas_scroll.setWidget(self.canvas)
         self.center_tabs.addTab(self.canvas_scroll, "🎨 Visual Canvas")
 
         # Tab 1: Multi-Script Editor (Godot style)
-        self.script_tab = ScriptEditorTab(self)
+        self.script_tab = ScriptEditorTab(self, self.current_flavor)
         self.center_tabs.addTab(self.script_tab, "🐍 Script Workspace")
 
         # Docks & Toolbar
@@ -178,31 +127,13 @@ class HomiCraftEditorWindow(QMainWindow):
         toolbar.addSeparator()
 
         self.btn_run = QPushButton("▶ Run (F5)")
-        self.btn_run.setStyleSheet("""
-            QPushButton {
-                background-color: #2e7d32;
-                color: white;
-                font-weight: bold;
-                padding: 6px 14px;
-                border-radius: 4px;
-            }
-            QPushButton:hover { background-color: #388e3c; }
-        """)
+        self.btn_run.setObjectName("btn_run")
         self.btn_run.clicked.connect(self.run_project)
         self.btn_run.setShortcut(QKeySequence("F5"))
         toolbar.addWidget(self.btn_run)
 
         self.btn_stop = QPushButton("⏹ Stop")
-        self.btn_stop.setStyleSheet("""
-            QPushButton {
-                background-color: #c62828;
-                color: white;
-                font-weight: bold;
-                padding: 6px 14px;
-                border-radius: 4px;
-            }
-            QPushButton:hover { background-color: #d32f2f; }
-        """)
+        self.btn_stop.setObjectName("btn_stop")
         self.btn_stop.clicked.connect(self.stop_project)
         self.btn_stop.setEnabled(False)
         toolbar.addWidget(self.btn_stop)
@@ -210,18 +141,30 @@ class HomiCraftEditorWindow(QMainWindow):
         toolbar.addSeparator()
 
         btn_export = QPushButton("📦 Export .EXE")
-        btn_export.setStyleSheet("""
-            QPushButton {
-                background-color: #0288d1;
-                color: white;
-                font-weight: bold;
-                padding: 6px 12px;
-                border-radius: 4px;
-            }
-            QPushButton:hover { background-color: #039be5; }
-        """)
+        btn_export.setObjectName("btn_export")
         btn_export.clicked.connect(self._on_export_clicked)
         toolbar.addWidget(btn_export)
+
+        toolbar.addSeparator()
+
+        # Theme Selector (Catppuccin flavors)
+        lbl_theme = QLabel("🎨 Theme:")
+        lbl_theme.setStyleSheet("font-weight: bold; margin-left: 4px;")
+        toolbar.addWidget(lbl_theme)
+
+        self.combo_theme = QComboBox(self)
+        self.combo_theme.addItems([
+            "🌿 Mocha (Dark)",
+            "☕ Macchiato (Medium)",
+            "🍨 Frappé (Soft)",
+            "🥛 Latte (Light)"
+        ])
+        
+        # Set current index based on flavor
+        flavor_to_idx = {"Mocha": 0, "Macchiato": 1, "Frappé": 2, "Latte": 3}
+        self.combo_theme.setCurrentIndex(flavor_to_idx.get(self.current_flavor, 0))
+        self.combo_theme.currentIndexChanged.connect(self._on_theme_changed)
+        toolbar.addWidget(self.combo_theme)
 
         toolbar.addSeparator()
 
@@ -283,13 +226,28 @@ class HomiCraftEditorWindow(QMainWindow):
         self.dock_bottom.setFeatures(dock_features)
         
         self.console = QPlainTextEdit(self)
+        self.console.setObjectName("console_output")
         self.console.setReadOnly(True)
-        self.console.setStyleSheet("background-color: #121217; color: #a4b0be; font-family: Consolas; font-size: 11px;")
         self.dock_bottom.setWidget(self.console)
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.dock_bottom)
 
+    def _on_theme_changed(self, index: int) -> None:
+        flavors = ["Mocha", "Macchiato", "Frappé", "Latte"]
+        if 0 <= index < len(flavors):
+            self.apply_theme(flavors[index])
+
+    def apply_theme(self, flavor: str) -> None:
+        self.current_flavor = flavor
+        qss = build_catppuccin_stylesheet(flavor)
+        self.setStyleSheet(qss)
+        self.script_tab.apply_theme(flavor)
+        
+        # Save preference
+        settings = QSettings("HomiCraft", "Theme")
+        settings.setValue("flavor", flavor)
+        self.log(f"Switched theme to Catppuccin {flavor}")
+
     def reset_default_layout(self) -> None:
-        """Restores the classic Godot layout arrangement."""
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.dock_scene)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.dock_filesystem)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.dock_right)
@@ -330,7 +288,6 @@ class HomiCraftEditorWindow(QMainWindow):
         self.inspector.window_resized.connect(self._on_window_resized)
 
     def _on_script_dropped_on_node(self, node_id: str, filename: str, full_path: str) -> None:
-        # Load script into workspace tab
         if os.path.exists(full_path):
             with open(full_path, "r", encoding="utf-8") as f:
                 content = f.read()

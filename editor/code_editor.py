@@ -1,8 +1,8 @@
 """
 HomiCraft Embedded Python Script Editor & Multi-Script Workspace
-Provides Godot-style multi-tab script editing with syntax highlighting,
+Provides Godot-style multi-tab script editing with Catppuccin syntax highlighting,
 line numbers, closable tabs, auto-indentation on Enter, smart Tab/Backspace,
-and DRAG-AND-DROP NODE REFERENCES FROM SCENE TREE (Godot style!).
+and drag-and-drop node references from the Scene Tree.
 """
 
 import os
@@ -17,17 +17,30 @@ from PySide6.QtGui import (
 )
 from PySide6.QtCore import Qt, QRect, QSize, QRegularExpression
 
+from editor.theme import CATPPUCCIN_PALETTES
+
 
 class PythonSyntaxHighlighter(QSyntaxHighlighter):
-    """Rich syntax highlighter for Python code in HomiCraft."""
+    """Catppuccin theme-aware syntax highlighter for Python code."""
 
-    def __init__(self, document):
+    def __init__(self, document, flavor: str = "Mocha"):
         super().__init__(document)
         self.rules = []
+        self.flavor = flavor
+        self._build_rules()
 
-        # Keyword format (blue/cyan)
+    def set_flavor(self, flavor: str):
+        self.flavor = flavor
+        self._build_rules()
+        self.rehighlight()
+
+    def _build_rules(self):
+        self.rules.clear()
+        pal = CATPPUCCIN_PALETTES.get(self.flavor, CATPPUCCIN_PALETTES["Mocha"])
+
+        # Keywords (Mauve)
         keyword_format = QTextCharFormat()
-        keyword_format.setForeground(QColor("#4ecdc4"))
+        keyword_format.setForeground(QColor(pal["mauve"]))
         keyword_format.setFontWeight(QFont.Weight.Bold)
         keywords = [
             "def", "class", "return", "if", "else", "elif", "for", "while",
@@ -39,36 +52,37 @@ class PythonSyntaxHighlighter(QSyntaxHighlighter):
             pattern = QRegularExpression(rf"\b{kw}\b")
             self.rules.append((pattern, keyword_format))
 
-        # Built-ins and constants (purple/pink)
+        # Built-ins and constants (Pink / Red)
         builtin_format = QTextCharFormat()
-        builtin_format.setForeground(QColor("#ff79c6"))
+        builtin_format.setForeground(QColor(pal["pink"]))
         builtin_format.setFontWeight(QFont.Weight.Bold)
         builtins = ["True", "False", "None", "self", "app", "print", "len", "range", "int", "str", "float", "bool", "dict", "list"]
         for b in builtins:
             pattern = QRegularExpression(rf"\b{b}\b")
             self.rules.append((pattern, builtin_format))
 
-        # Function definitions (yellow/orange)
+        # Function definitions (Blue)
         func_format = QTextCharFormat()
-        func_format.setForeground(QColor("#ffd166"))
+        func_format.setForeground(QColor(pal["blue"]))
+        func_format.setFontWeight(QFont.Weight.Bold)
         self.rules.append((QRegularExpression(r"\bdef\s+([A-Za-z_][A-Za-z0-9_]*)"), func_format))
 
-        # Numbers (light green)
+        # Numbers (Peach)
         number_format = QTextCharFormat()
-        number_format.setForeground(QColor("#06d6a0"))
+        number_format.setForeground(QColor(pal["peach"]))
         self.rules.append((QRegularExpression(r"\b[0-9]+(\.[0-9]+)?\b"), number_format))
 
-        # Strings (peach/orange)
-        self.string_format = QTextCharFormat()
-        self.string_format.setForeground(QColor("#f4a261"))
-        self.rules.append((QRegularExpression(r'"[^"\\]*(\\.[^"\\]*)*"'), self.string_format))
-        self.rules.append((QRegularExpression(r"'[^'\\]*(\\.[^'\\]*)*'"), self.string_format))
+        # Strings (Green)
+        string_format = QTextCharFormat()
+        string_format.setForeground(QColor(pal["green"]))
+        self.rules.append((QRegularExpression(r'"[^"\\]*(\\.[^"\\]*)*"'), string_format))
+        self.rules.append((QRegularExpression(r"'[^'\\]*(\\.[^'\\]*)*'"), string_format))
 
-        # Comments (grey/muted italic)
-        self.comment_format = QTextCharFormat()
-        self.comment_format.setForeground(QColor("#78909c"))
-        self.comment_format.setFontItalic(True)
-        self.rules.append((QRegularExpression(r"#.*"), self.comment_format))
+        # Comments (Overlay0)
+        comment_format = QTextCharFormat()
+        comment_format.setForeground(QColor(pal["overlay0"]))
+        comment_format.setFontItalic(True)
+        self.rules.append((QRegularExpression(r"#.*"), comment_format))
 
     def highlightBlock(self, text: str):
         for pattern, fmt in self.rules:
@@ -91,8 +105,9 @@ class LineNumberArea(QWidget):
 
 
 class ScriptEditorWidget(QPlainTextEdit):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, flavor: str = "Mocha"):
         super().__init__(parent)
+        self.flavor = flavor
         self.line_number_area = LineNumberArea(self)
         self.setAcceptDrops(True)
 
@@ -101,22 +116,30 @@ class ScriptEditorWidget(QPlainTextEdit):
         self.setFont(font)
         self.setTabStopDistance(32)
 
-        self.setStyleSheet("""
-            QPlainTextEdit {
-                background-color: #1a1a22;
-                color: #e0e0e0;
-                border: 1px solid #333340;
-                selection-background-color: #2e4a46;
-            }
-        """)
-
-        self.highlighter = PythonSyntaxHighlighter(self.document())
+        self.highlighter = PythonSyntaxHighlighter(self.document(), flavor)
         self.blockCountChanged.connect(self.update_line_number_area_width)
         self.updateRequest.connect(self.update_line_number_area)
         self.cursorPositionChanged.connect(self.highlight_current_line)
 
+        self.apply_theme(flavor)
         self.update_line_number_area_width(0)
         self.highlight_current_line()
+
+    def apply_theme(self, flavor: str):
+        self.flavor = flavor
+        pal = CATPPUCCIN_PALETTES.get(flavor, CATPPUCCIN_PALETTES["Mocha"])
+        self.setStyleSheet(f"""
+            QPlainTextEdit {{
+                background-color: {pal["base"]};
+                color: {pal["text"]};
+                border: 1px solid {pal["surface0"]};
+                border-radius: 8px;
+                selection-background-color: {pal["surface2"]};
+            }}
+        """)
+        self.highlighter.set_flavor(flavor)
+        self.highlight_current_line()
+        self.line_number_area.update()
 
     def line_number_area_width(self):
         digits = 1
@@ -124,7 +147,7 @@ class ScriptEditorWidget(QPlainTextEdit):
         while max_b >= 10:
             max_b //= 10
             digits += 1
-        space = 12 + self.fontMetrics().horizontalAdvance('9') * digits
+        space = 14 + self.fontMetrics().horizontalAdvance('9') * digits
         return space
 
     def update_line_number_area_width(self, _):
@@ -144,8 +167,9 @@ class ScriptEditorWidget(QPlainTextEdit):
         self.line_number_area.setGeometry(QRect(cr.left(), cr.top(), self.line_number_area_width(), cr.height()))
 
     def line_number_area_paint_event(self, event):
+        pal = CATPPUCCIN_PALETTES.get(self.flavor, CATPPUCCIN_PALETTES["Mocha"])
         painter = QPainter(self.line_number_area)
-        painter.fillRect(event.rect(), QColor(26, 26, 34))
+        painter.fillRect(event.rect(), QColor(pal["mantle"]))
 
         block = self.firstVisibleBlock()
         block_number = block.blockNumber()
@@ -155,8 +179,8 @@ class ScriptEditorWidget(QPlainTextEdit):
         while block.isValid() and top <= event.rect().bottom():
             if block.isVisible() and bottom >= event.rect().top():
                 number = str(block_number + 1)
-                painter.setPen(QColor(100, 110, 125))
-                painter.drawText(0, top, self.line_number_area.width() - 6, self.fontMetrics().height(),
+                painter.setPen(QColor(pal["overlay1"]))
+                painter.drawText(0, top, self.line_number_area.width() - 8, self.fontMetrics().height(),
                                  Qt.AlignmentFlag.AlignRight, number)
             block = block.next()
             top = bottom
@@ -164,10 +188,11 @@ class ScriptEditorWidget(QPlainTextEdit):
             block_number += 1
 
     def highlight_current_line(self):
+        pal = CATPPUCCIN_PALETTES.get(self.flavor, CATPPUCCIN_PALETTES["Mocha"])
         extra_selections = []
         if not self.isReadOnly():
             selection = QTextEdit.ExtraSelection()
-            selection.format.setBackground(QColor(32, 32, 44))
+            selection.format.setBackground(QColor(pal["surface0"]))
             selection.format.setProperty(0x100000, True)
             selection.cursor = self.textCursor()
             selection.cursor.clearSelection()
@@ -185,11 +210,9 @@ class ScriptEditorWidget(QPlainTextEdit):
             col = cursor.positionInBlock()
             line_up_to_cursor = line_text[:col]
 
-            # Calculate existing indentation
             stripped = line_up_to_cursor.lstrip()
             indent = line_up_to_cursor[:len(line_up_to_cursor) - len(stripped)]
 
-            # Check if line ends with colon ':'
             code_no_comments = stripped.split('#')[0].rstrip()
             if code_no_comments.endswith(':'):
                 indent += "    "
@@ -292,11 +315,9 @@ class ScriptEditorWidget(QPlainTextEdit):
             is_blank_line = not line_text.strip()
             ctrl_pressed = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
 
-            # Godot style: If dropped on a blank line or with Ctrl held, create variable assignment!
             if is_blank_line or ctrl_pressed:
                 cur.insertText(f"{node_id} = app.{node_id}")
             else:
-                # If dropped inline inside an expression, insert reference directly
                 cur.insertText(f"app.{node_id}")
 
             self.setTextCursor(cur)
@@ -327,13 +348,10 @@ class ScriptEditorWidget(QPlainTextEdit):
 
 
 class ScriptEditorTab(QWidget):
-    """
-    Multi-script editor tab (like Godot's Script tab workspace).
-    Allows editing main.py and any project Python files simultaneously.
-    """
-
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, flavor: str = "Mocha"):
         super().__init__(parent)
+        self.flavor = flavor
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
@@ -341,24 +359,14 @@ class ScriptEditorTab(QWidget):
         self.tab_widget = QTabWidget(self)
         self.tab_widget.setTabsClosable(True)
         self.tab_widget.tabCloseRequested.connect(self._on_tab_close_requested)
-        self.tab_widget.setStyleSheet("""
-            QTabBar::tab {
-                background: #25252e;
-                color: #b0bec5;
-                padding: 6px 14px;
-                margin-right: 2px;
-                border-top-left-radius: 4px;
-                border-top-right-radius: 4px;
-            }
-            QTabBar::tab:selected {
-                background: #37474f;
-                color: #4ecdc4;
-                font-weight: bold;
-            }
-        """)
         layout.addWidget(self.tab_widget)
 
         self.editors: Dict[str, ScriptEditorWidget] = {}
+
+    def apply_theme(self, flavor: str):
+        self.flavor = flavor
+        for ed in self.editors.values():
+            ed.apply_theme(flavor)
 
     def open_script(self, filename: str, content: Optional[str] = None) -> ScriptEditorWidget:
         if filename in self.editors:
@@ -368,7 +376,7 @@ class ScriptEditorTab(QWidget):
                     break
             return self.editors[filename]
 
-        editor = ScriptEditorWidget(self)
+        editor = ScriptEditorWidget(self, self.flavor)
         if content is not None:
             editor.setPlainText(content)
         self.editors[filename] = editor

@@ -2,6 +2,7 @@
 HomiCraft Runtime Engine
 Dynamically loads UI JSON scenes, builds PySide6 widget hierarchies,
 wraps widgets into Pythonic HomiWidgetProxy objects, and executes the user's application.
+Handles both standard editor runtime and frozen standalone PyInstaller bundles.
 """
 
 from __future__ import annotations
@@ -65,10 +66,35 @@ class HomiRuntimeWindow(QMainWindow):
 
         self._load_and_build()
 
+    def _find_project_file(self, filename: str) -> Optional[str]:
+        """Locates a project file whether in source mode or inside a frozen PyInstaller bundle."""
+        if not filename:
+            return None
+
+        # 1. Direct check in self.project_dir
+        path1 = os.path.join(self.project_dir, filename)
+        if os.path.exists(path1):
+            return path1
+
+        # 2. Frozen PyInstaller mode checks
+        if getattr(sys, "frozen", False):
+            internal_dir = getattr(sys, "_MEIPASS", "")
+            if internal_dir:
+                path2 = os.path.join(internal_dir, filename)
+                if os.path.exists(path2):
+                    return path2
+
+            exe_dir = os.path.dirname(os.path.abspath(sys.executable))
+            path3 = os.path.join(exe_dir, filename)
+            if os.path.exists(path3):
+                return path3
+
+        return None
+
     def _load_and_build(self) -> None:
         # 1. Load project.json
-        proj_path = os.path.join(self.project_dir, "project.json")
-        if os.path.exists(proj_path):
+        proj_path = self._find_project_file("project.json")
+        if proj_path:
             self.project_config = load_project_config(proj_path)
             self.setWindowTitle(self.project_config.window_title)
             self.resize(self.project_config.window_width, self.project_config.window_height)
@@ -76,15 +102,15 @@ class HomiRuntimeWindow(QMainWindow):
                 self.setFixedSize(self.project_config.window_width, self.project_config.window_height)
 
         # 2. Load Entry Scene
-        scene_path = os.path.join(self.project_dir, self.project_config.entry_scene)
-        if not os.path.exists(scene_path):
-            raise FileNotFoundError(f"Scene file not found: {scene_path}")
+        scene_path = self._find_project_file(self.project_config.entry_scene)
+        if not scene_path:
+            raise FileNotFoundError(f"Scene file not found: {self.project_config.entry_scene} in {self.project_dir}")
 
         scene_root = load_scene(scene_path)
 
         # 3. Load Scene Python script (main.py)
-        main_script_path = os.path.join(self.project_dir, "main.py")
-        if os.path.exists(main_script_path):
+        main_script_path = self._find_project_file("main.py")
+        if main_script_path:
             self.scene_module = self._load_script_module("homi_main_script", main_script_path)
 
         # 4. Instantiate widgets recursively
@@ -93,15 +119,30 @@ class HomiRuntimeWindow(QMainWindow):
         # 5. Inject app context and widget proxies into all loaded modules
         self._inject_globals_into_modules()
 
-        # 6. Call ready / _ready hook on scene script
+        # 6. Call ready / _ready hook on all node modules and scene module
+        for node_mod in self.node_modules.values():
+            ready_fn = getattr(node_mod, "ready", None) or getattr(node_mod, "_ready", None)
+            if ready_fn and callable(ready_fn):
+                try:
+                    sig = inspect.signature(ready_fn)
+                    if len(sig.parameters) == 0:
+                        ready_fn()
+                    else:
+                        ready_fn(self.context)
+                except Exception as e:
+                    print(f"[HomiCraft Ready Hook Error]: {e}", file=sys.stderr)
+
         if self.scene_module:
             ready_func = getattr(self.scene_module, "ready", None) or getattr(self.scene_module, "_ready", None)
             if ready_func and callable(ready_func):
-                sig = inspect.signature(ready_func)
-                if len(sig.parameters) == 0:
-                    ready_func()
-                else:
-                    ready_func(self.context)
+                try:
+                    sig = inspect.signature(ready_func)
+                    if len(sig.parameters) == 0:
+                        ready_func()
+                    else:
+                        ready_func(self.context)
+                except Exception as e:
+                    print(f"[HomiCraft Scene Ready Error]: {e}", file=sys.stderr)
 
     def _load_script_module(self, mod_name: str, script_path: str):
         if script_path in self.node_modules:
@@ -125,9 +166,7 @@ class HomiRuntimeWindow(QMainWindow):
             all_modules.append(self.scene_module)
 
         for mod in all_modules:
-            # Provide global 'app'
             mod.__dict__["app"] = self.context
-            # Provide direct widget variables (e.g. button_1, lbl_title)
             for widget_id, proxy in self.context._widgets.items():
                 mod.__dict__[widget_id] = proxy
 
@@ -160,16 +199,11 @@ class HomiRuntimeWindow(QMainWindow):
             # Load node dedicated script if attached
             node_mod = None
             if node.script:
-                node_script_path = os.path.join(self.project_dir, node.script)
-                if os.path.exists(node_script_path):
+                node_script_path = self._find_project_file(node.script)
+                if node_script_path:
                     node_mod = self._load_script_module(f"homi_{node.id}_script", node_script_path)
-                    ready_fn = getattr(node_mod, "ready", None) or getattr(node_mod, "_ready", None)
-                    if ready_fn and callable(ready_fn):
-                        sig = inspect.signature(ready_fn)
-                        if len(sig.parameters) == 0:
-                            ready_fn()
-                        else:
-                            ready_fn(self.context)
+                else:
+                    print(f"[HomiCraft Runtime Warning]: Attached script '{node.script}' not found for node '{node.id}'", file=sys.stderr)
 
             # Bind signals
             self._bind_signals(node, qt_instance, node_mod)
@@ -193,7 +227,7 @@ class HomiRuntimeWindow(QMainWindow):
                 handler = getattr(self.scene_module, callback_name, None)
 
             if not handler or not callable(handler):
-                print(f"[HomiCraft Runtime] Warning: Callback function '{callback_name}' not found for {node.id}.{signal_name}")
+                print(f"[HomiCraft Runtime] Warning: Callback function '{callback_name}' not found for {node.id}.{signal_name}", file=sys.stderr)
                 continue
 
             qt_signal = getattr(qt_instance, signal_name, None)
@@ -207,6 +241,8 @@ class HomiRuntimeWindow(QMainWindow):
             def make_slot(fn, params_len):
                 def slot(*args):
                     try:
+                        # Re-ensure module globals before slot execution
+                        self._inject_globals_into_modules()
                         if params_len == 0:
                             fn()
                         elif params_len == 1:

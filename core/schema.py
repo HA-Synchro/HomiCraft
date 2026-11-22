@@ -35,8 +35,9 @@ class WidgetNode:
     y: int = 0
     width: int = 120
     height: int = 36
+    script: Optional[str] = None  # Optional attached script path (e.g. "button_1.py")
     properties: Dict[str, Any] = field(default_factory=dict)
-    signals: Dict[str, str] = field(default_factory=dict)  # signal_name -> python_callback_name
+    signals: Dict[str, str] = field(default_factory=dict)  # signal_name -> callback_name
     children: List[WidgetNode] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -44,6 +45,7 @@ class WidgetNode:
             "id": self.id,
             "type": self.type,
             "geometry": [self.x, self.y, self.width, self.height],
+            "script": self.script,
             "properties": self.properties,
             "signals": self.signals,
             "children": [c.to_dict() for c in self.children]
@@ -61,6 +63,7 @@ class WidgetNode:
             y=geom[1] if len(geom) > 1 else 0,
             width=geom[2] if len(geom) > 2 else 120,
             height=geom[3] if len(geom) > 3 else 36,
+            script=data.get("script", None),
             properties=data.get("properties", {}),
             signals=data.get("signals", {}),
             children=children

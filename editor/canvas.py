@@ -2,12 +2,14 @@
 HomiCraft Visual Designer Canvas
 Provides an interactive 2D design surface where widgets can be clicked,
 dragged, resized, duplicated (Ctrl+D), deleted, and visually arranged.
+Supports dragging .py scripts directly onto widgets to attach scripts (Godot style).
 """
 
+import os
 from typing import Optional, Callable, Dict, List
 from PySide6.QtWidgets import QWidget, QFrame
 from PySide6.QtCore import Qt, QPoint, QRect, Signal
-from PySide6.QtGui import QPainter, QPen, QColor, QMouseEvent, QKeyEvent
+from PySide6.QtGui import QPainter, QPen, QColor, QMouseEvent, QKeyEvent, QDragEnterEvent, QDropEvent
 
 from core.schema import WidgetNode
 from core.registry import WIDGET_REGISTRY, apply_widget_properties
@@ -71,17 +73,18 @@ class CanvasOverlay(QWidget):
 class DesignCanvas(QFrame):
     """The 2D visual viewport where widgets are placed and manipulated."""
 
-    node_selected = Signal(object)          # Emits selected WidgetNode
-    node_modified = Signal(object)          # Emits modified WidgetNode (after move/resize)
-    node_delete_requested = Signal(str)     # Emits node_id to delete
-    node_duplicate_requested = Signal(str)  # Emits node_id to duplicate
-    node_double_clicked = Signal(object)    # Emits WidgetNode on double-click
+    node_selected = Signal(object)              # Emits selected WidgetNode
+    node_modified = Signal(object)              # Emits modified WidgetNode (after move/resize)
+    node_delete_requested = Signal(str)         # Emits node_id to delete
+    node_duplicate_requested = Signal(str)      # Emits node_id to duplicate
+    script_dropped_on_node = Signal(str, str, str)  # (node_id, filename, full_path)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setStyleSheet("background-color: #1e1e24; border: 1px solid #333340;")
         self.setMouseTracking(True)
+        self.setAcceptDrops(True)
 
         self.root_node: Optional[WidgetNode] = None
         self.selected_node: Optional[WidgetNode] = None
@@ -110,7 +113,6 @@ class DesignCanvas(QFrame):
         self.rebuild_visuals()
 
     def rebuild_visuals(self) -> None:
-        # Clear existing visual widget instances
         for w in self.widget_instances.values():
             w.deleteLater()
         self.widget_instances.clear()
@@ -119,7 +121,6 @@ class DesignCanvas(QFrame):
             self.overlay.update()
             return
 
-        # Apply root styling if any
         if "styleSheet" in self.root_node.properties:
             self.setStyleSheet(self.root_node.properties["styleSheet"])
         else:
@@ -145,7 +146,6 @@ class DesignCanvas(QFrame):
         props.update(node.properties)
         apply_widget_properties(instance, props)
         
-        # Transparent for mouse events so canvas catches drags/clicks
         instance.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         instance.show()
 
@@ -180,7 +180,6 @@ class DesignCanvas(QFrame):
             pos = event.position().toPoint()
             clicked_node = None
 
-            # Hit-test widgets in reverse order (topmost first)
             if self.root_node:
                 for child in reversed(self.root_node.children):
                     rect = QRect(child.x, child.y, child.width, child.height)
@@ -188,7 +187,6 @@ class DesignCanvas(QFrame):
                         clicked_node = child
                         break
 
-            # If nothing clicked, select the root window
             if not clicked_node and self.root_node:
                 clicked_node = self.root_node
 
@@ -201,7 +199,6 @@ class DesignCanvas(QFrame):
                 self._drag_start_pos = pos
                 self._initial_geom = QRect(clicked_node.x, clicked_node.y, clicked_node.width, clicked_node.height)
                 
-                # Check if clicking bottom-right corner for resize
                 br = self._initial_geom.bottomRight()
                 if (pos - br).manhattanLength() < 14:
                     self._is_resizing = True
@@ -210,8 +207,6 @@ class DesignCanvas(QFrame):
         super().mousePressEvent(event)
 
     def mouseDoubleClickEvent(self, event: QMouseEvent):
-        if self.selected_node and self.selected_node.id != "root_window":
-            self.node_double_clicked.emit(self.selected_node)
         super().mouseDoubleClickEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent):
@@ -226,7 +221,6 @@ class DesignCanvas(QFrame):
                 new_x = round(new_x / self.grid_size) * self.grid_size
                 new_y = round(new_y / self.grid_size) * self.grid_size
 
-            # Constrain to canvas bounds
             new_x = max(0, min(new_x, self.width() - self.selected_node.width))
             new_y = max(0, min(new_y, self.height() - self.selected_node.height))
 
@@ -272,21 +266,18 @@ class DesignCanvas(QFrame):
         key = event.key()
         modifiers = event.modifiers()
 
-        # Delete key: Remove selected widget
         if key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
             if self.selected_node and self.selected_node.id != "root_window":
                 self.node_delete_requested.emit(self.selected_node.id)
                 event.accept()
                 return
 
-        # Ctrl+D: Duplicate selected widget (Godot style)
         if key == Qt.Key.Key_D and (modifiers & Qt.KeyboardModifier.ControlModifier):
             if self.selected_node and self.selected_node.id != "root_window":
                 self.node_duplicate_requested.emit(self.selected_node.id)
                 event.accept()
                 return
 
-        # Arrow keys: Nudge widget position
         step = 1 if (modifiers & Qt.KeyboardModifier.ShiftModifier) else self.grid_size
         if self.selected_node and self.selected_node.id != "root_window":
             if key == Qt.Key.Key_Left:
@@ -311,3 +302,35 @@ class DesignCanvas(QFrame):
             return
 
         super().keyPressEvent(event)
+
+    # DRAG & DROP PYTHON SCRIPTS ONTO CANVAS WIDGETS (Godot style)
+    def dragEnterEvent(self, event: QDragEnterEvent):
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                if url.toLocalFile().endswith(".py"):
+                    event.acceptProposedAction()
+                    return
+        event.ignore()
+
+    def dropEvent(self, event: QDropEvent):
+        if event.mimeData().hasUrls() and self.root_node:
+            pos = event.position().toPoint()
+            # Find widget under drop location
+            target_node = None
+            for child in reversed(self.root_node.children):
+                rect = QRect(child.x, child.y, child.width, child.height)
+                if rect.contains(pos):
+                    target_node = child
+                    break
+
+            if target_node:
+                for url in event.mimeData().urls():
+                    fpath = url.toLocalFile()
+                    if fpath.endswith(".py"):
+                        fname = os.path.basename(fpath)
+                        target_node.script = fname
+                        event.acceptProposedAction()
+                        self.select_node_by_id(target_node.id)
+                        self.script_dropped_on_node.emit(target_node.id, fname, fpath)
+                        return
+        event.ignore()

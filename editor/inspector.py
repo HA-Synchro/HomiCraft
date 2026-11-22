@@ -1,28 +1,133 @@
 """
 HomiCraft Inspector & Signals Dock
 Provides real-time property editing for widgets and the root window,
-along with Godot-style signal event binding.
+along with authentic Godot-style drag & drop script attachment & signal event binding.
 """
 
+import os
 from typing import Optional
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QLineEdit,
-    QSpinBox, QCheckBox, QTextEdit, QPushButton, QScrollArea, QFrame
+    QSpinBox, QCheckBox, QPushButton, QScrollArea, QFrame, QMessageBox
 )
 from PySide6.QtCore import Signal, Qt
+from PySide6.QtGui import QDragEnterEvent, QDropEvent
 
 from core.schema import WidgetNode
 from core.registry import WIDGET_REGISTRY
+from editor.connect_dialog import SignalConnectDialog
+
+
+class ScriptDropSlot(QFrame):
+    """
+    Drop target for Python script files.
+    Allows dragging any .py file directly from the FileSystem dock to attach it!
+    """
+    script_dropped = Signal(str, str)  # (filename, full_path)
+    attach_clicked = Signal()
+    detach_clicked = Signal()
+    code_clicked = Signal(str)
+
+    def __init__(self, current_script: Optional[str] = None, parent=None):
+        super().__init__(parent)
+        self.setAcceptDrops(True)
+        self.current_script = current_script
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(6, 4, 6, 4)
+        layout.setSpacing(6)
+
+        if current_script:
+            self.setStyleSheet("""
+                QFrame {
+                    background-color: #202b30;
+                    border: 1px solid #4ecdc4;
+                    border-radius: 5px;
+                }
+            """)
+            lbl = QLabel(f"🐍 {current_script}")
+            lbl.setStyleSheet("color: #4ecdc4; font-weight: bold; font-family: Consolas;")
+            layout.addWidget(lbl)
+            layout.addStretch()
+
+            btn_code = QPushButton("📝 Code")
+            btn_code.setStyleSheet("padding: 2px 6px; background-color: #2e4a46; font-size: 11px;")
+            btn_code.clicked.connect(lambda: self.code_clicked.emit(current_script))
+            layout.addWidget(btn_code)
+
+            btn_detach = QPushButton("❌")
+            btn_detach.setToolTip("Detach Script")
+            btn_detach.setStyleSheet("padding: 2px 6px; background-color: #5c2020; font-size: 11px;")
+            btn_detach.clicked.connect(self.detach_clicked.emit)
+            layout.addWidget(btn_detach)
+        else:
+            self.setStyleSheet("""
+                QFrame {
+                    background-color: #1a1a22;
+                    border: 1px dashed #607d8b;
+                    border-radius: 5px;
+                }
+            """)
+            lbl = QLabel("⤓ Drag .py script here")
+            lbl.setStyleSheet("color: #78909c; font-style: italic; font-size: 11px;")
+            layout.addWidget(lbl)
+            layout.addStretch()
+
+            btn_attach = QPushButton("📜 New")
+            btn_attach.setToolTip("Create & Attach Dedicated Script")
+            btn_attach.setStyleSheet("padding: 2px 8px; background-color: #2e4a46; color: #4ecdc4; font-size: 11px; font-weight: bold;")
+            btn_attach.clicked.connect(self.attach_clicked.emit)
+            layout.addWidget(btn_attach)
+
+    def dragEnterEvent(self, event: QDragEnterEvent):
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                fpath = url.toLocalFile()
+                if fpath.endswith(".py"):
+                    event.acceptProposedAction()
+                    self.setStyleSheet("""
+                        QFrame {
+                            background-color: #253835;
+                            border: 2px solid #4ecdc4;
+                            border-radius: 5px;
+                        }
+                    """)
+                    return
+        event.ignore()
+
+    def dragLeaveEvent(self, event):
+        if self.current_script:
+            self.setStyleSheet("QFrame { background-color: #202b30; border: 1px solid #4ecdc4; border-radius: 5px; }")
+        else:
+            self.setStyleSheet("QFrame { background-color: #1a1a22; border: 1px dashed #607d8b; border-radius: 5px; }")
+        super().dragLeaveEvent(event)
+
+    def dropEvent(self, event: QDropEvent):
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                fpath = url.toLocalFile()
+                if fpath.endswith(".py"):
+                    fname = os.path.basename(fpath)
+                    event.acceptProposedAction()
+                    self.script_dropped.emit(fname, fpath)
+                    return
+        event.ignore()
 
 
 class InspectorDock(QWidget):
-    property_changed = Signal(object)  # Emits modified WidgetNode
-    connect_signal_requested = Signal(str, str, str)  # (node_id, signal_name, callback_name)
-    window_resized = Signal(int, int)  # Emits (new_width, new_height) when root window size changes
+    property_changed = Signal(object)                      # Emits modified WidgetNode
+    connect_signal_requested = Signal(str, str, str, str)  # (node_id, signal_name, callback_name, target_script)
+    disconnect_signal_requested = Signal(str, str)         # (node_id, signal_name)
+    jump_to_code_requested = Signal(str, str)              # (target_script, callback_name)
+    attach_script_requested = Signal(str)                  # (node_id)
+    detach_script_requested = Signal(str)                  # (node_id)
+    script_dropped_on_node = Signal(str, str, str)         # (node_id, filename, full_path)
+    window_resized = Signal(int, int)                      # (new_width, new_height)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.active_node: Optional[WidgetNode] = None
+        self.project_dir: Optional[str] = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -66,7 +171,7 @@ class InspectorDock(QWidget):
             self._inspect_root_window(node)
             return
 
-        # 1. Identity section
+        # 1. Identity section (ID, Type, Script Drop Target)
         self.form_layout.addRow(QLabel("<b>Identity</b>"))
         id_input = QLineEdit(node.id)
         id_input.textChanged.connect(self._on_id_changed)
@@ -75,6 +180,14 @@ class InspectorDock(QWidget):
         type_lbl = QLabel(f"<b>{node.type}</b>")
         type_lbl.setStyleSheet("color: #4ecdc4;")
         self.form_layout.addRow("Type:", type_lbl)
+
+        # Drag & Drop Script Target (Godot style!)
+        script_slot = ScriptDropSlot(node.script, self)
+        script_slot.script_dropped.connect(lambda fname, fpath: self._on_script_dropped(fname, fpath))
+        script_slot.attach_clicked.connect(lambda: self.attach_script_requested.emit(node.id))
+        script_slot.detach_clicked.connect(lambda: self.detach_script_requested.emit(node.id))
+        script_slot.code_clicked.connect(lambda s: self.jump_to_code_requested.emit(s, ""))
+        self.form_layout.addRow("Script:", script_slot)
 
         # 2. Geometry section (X, Y, Width, Height)
         self.form_layout.addRow(QLabel("<b>Transform & Geometry</b>"))
@@ -112,7 +225,7 @@ class InspectorDock(QWidget):
 
             for key, default_val in props.items():
                 if key == "styleSheet":
-                    continue  # Style handled in custom field below
+                    continue
 
                 val = props.get(key, default_val)
                 if isinstance(default_val, bool):
@@ -131,41 +244,95 @@ class InspectorDock(QWidget):
                     txt.textChanged.connect(lambda t, k=key: self._update_prop(k, t))
                     self.form_layout.addRow(key.capitalize() + ":", txt)
 
-            # Styling field (CSS/QSS)
             style_edit = QLineEdit(str(props.get("styleSheet", "")))
             style_edit.setPlaceholderText("e.g. background-color: #2b2b2b;")
             style_edit.textChanged.connect(lambda t: self._update_prop("styleSheet", t))
             self.form_layout.addRow("Style (CSS):", style_edit)
 
-        # 4. Godot-style Signals Section
+        # 4. Authentic Godot-style Signals Section
         if meta and meta.supported_signals:
             self.form_layout.addRow(QLabel("<b>⚡ Signals (Events)</b>"))
             for sig in meta.supported_signals:
-                existing_cb = node.signals.get(sig, "")
+                is_connected = sig in node.signals
                 sig_row = QHBoxLayout()
-                
-                cb_input = QLineEdit(existing_cb)
-                cb_input.setPlaceholderText(f"on_{node.id}_{sig}")
-                cb_input.textChanged.connect(lambda t, s=sig: self._update_signal(s, t))
-                
-                connect_btn = QPushButton("⚡ Code")
-                connect_btn.setStyleSheet("background-color: #37474f; color: #4ecdc4; font-weight: bold; padding: 3px 6px;")
-                connect_btn.clicked.connect(lambda checked=False, s=sig, inp=cb_input: self._on_connect_clicked(s, inp))
 
-                sig_row.addWidget(cb_input)
-                sig_row.addWidget(connect_btn)
+                if is_connected:
+                    cb_name = node.signals[sig]
+                    lbl_status = QLabel(f"<span style='color:#06d6a0;'>🟢 {cb_name}()</span>")
+                    lbl_status.setStyleSheet("font-family: Consolas; font-size: 11px;")
+
+                    btn_code = QPushButton("📝 Code")
+                    btn_code.setStyleSheet("padding: 2px 6px; background-color: #2e4a46; font-size: 11px;")
+                    target_script = node.script or "main.py"
+                    btn_code.clicked.connect(lambda checked=False, s=target_script, c=cb_name: self.jump_to_code_requested.emit(s, c))
+
+                    btn_disconn = QPushButton("❌")
+                    btn_disconn.setToolTip(f"Disconnect {sig}()")
+                    btn_disconn.setStyleSheet("padding: 2px 6px; background-color: #5c2020; font-size: 11px;")
+                    btn_disconn.clicked.connect(lambda checked=False, s=sig: self._on_disconnect_clicked(s))
+
+                    sig_row.addWidget(lbl_status)
+                    sig_row.addStretch()
+                    sig_row.addWidget(btn_code)
+                    sig_row.addWidget(btn_disconn)
+                else:
+                    lbl_status = QLabel("<span style='color:#78909c;'>⚪ Disconnected</span>")
+                    lbl_status.setStyleSheet("font-size: 11px;")
+
+                    btn_connect = QPushButton("🔗 Connect...")
+                    btn_connect.setStyleSheet("padding: 3px 8px; background-color: #37474f; color: #4ecdc4; font-weight: bold; font-size: 11px;")
+                    btn_connect.clicked.connect(lambda checked=False, s=sig: self._open_connect_dialog(s))
+
+                    sig_row.addWidget(lbl_status)
+                    sig_row.addStretch()
+                    sig_row.addWidget(btn_connect)
+
                 self.form_layout.addRow(f"• {sig}:", sig_row)
+
+    def _on_script_dropped(self, filename: str, full_path: str) -> None:
+        if not self.active_node:
+            return
+        self.active_node.script = filename
+        self.script_dropped_on_node.emit(self.active_node.id, filename, full_path)
+        self.inspect_node(self.active_node)
+        self.property_changed.emit(self.active_node)
+
+    def _open_connect_dialog(self, sig: str) -> None:
+        if not self.active_node:
+            return
+        dlg = SignalConnectDialog(
+            node_id=self.active_node.id,
+            node_type=self.active_node.type,
+            signal_name=sig,
+            attached_script=self.active_node.script,
+            project_dir=self.project_dir,
+            parent=self
+        )
+        if dlg.exec():
+            target_script, method_name = dlg.get_result()
+            self.active_node.signals[sig] = method_name
+            if target_script != "main.py":
+                self.active_node.script = target_script
+            self.connect_signal_requested.emit(self.active_node.id, sig, method_name, target_script)
+            self.inspect_node(self.active_node)
+            self.property_changed.emit(self.active_node)
+
+    def _on_disconnect_clicked(self, sig: str) -> None:
+        if not self.active_node:
+            return
+        self.active_node.signals.pop(sig, None)
+        self.disconnect_signal_requested.emit(self.active_node.id, sig)
+        self.inspect_node(self.active_node)
+        self.property_changed.emit(self.active_node)
 
     def _inspect_root_window(self, node: WidgetNode) -> None:
         self.form_layout.addRow(QLabel("<b>Window Settings (Root)</b>"))
         
-        # Window Title
         title = node.properties.get("title", "My HomiCraft App")
         title_inp = QLineEdit(str(title))
         title_inp.textChanged.connect(lambda t: self._update_prop("title", t))
         self.form_layout.addRow("Title:", title_inp)
 
-        # Window Width & Height
         width_spin = QSpinBox()
         width_spin.setRange(200, 3840)
         width_spin.setValue(node.width if node.width > 0 else 600)
@@ -185,7 +352,6 @@ class InspectorDock(QWidget):
         self.form_layout.addRow("Width:", width_spin)
         self.form_layout.addRow("Height:", height_spin)
 
-        # Window Background CSS
         style_val = node.properties.get("styleSheet", "background-color: #1e1e24;")
         style_inp = QLineEdit(str(style_val))
         style_inp.setPlaceholderText("background-color: #1e1e24;")
@@ -211,23 +377,3 @@ class InspectorDock(QWidget):
             return
         self.active_node.properties[key] = val
         self.property_changed.emit(self.active_node)
-
-    def _update_signal(self, sig: str, callback_name: str) -> None:
-        if not self.active_node:
-            return
-        if callback_name.strip():
-            self.active_node.signals[sig] = callback_name.strip()
-        else:
-            self.active_node.signals.pop(sig, None)
-        self.property_changed.emit(self.active_node)
-
-    def _on_connect_clicked(self, sig: str, cb_input: QLineEdit) -> None:
-        if not self.active_node:
-            return
-        cb_name = cb_input.text().strip()
-        if not cb_name:
-            cb_name = f"on_{self.active_node.id}_{sig}"
-            cb_input.setText(cb_name)
-            self._update_signal(sig, cb_name)
-
-        self.connect_signal_requested.emit(self.active_node.id, sig, cb_name)

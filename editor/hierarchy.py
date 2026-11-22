@@ -1,20 +1,40 @@
 """
 HomiCraft Hierarchy Tree Dock
 Displays the Scene Tree of widgets, matching Godot's Scene dock.
-Allows selecting, renaming, and deleting nodes.
+Supports selecting, renaming, deleting, and DRAGGING nodes into the Script Editor
+to automatically generate object references!
 """
 
 from typing import Optional
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem,
-    QPushButton, QLabel, QHeaderView
+    QPushButton, QLabel, QHeaderView, QAbstractItemView
 )
-from PySide6.QtCore import Signal, Qt
+from PySide6.QtCore import Signal, Qt, QMimeData
 from core.schema import WidgetNode
 
 
+class HierarchyTreeWidget(QTreeWidget):
+    """Draggable Scene Tree (Godot style). Allows dragging nodes directly into scripts."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setDragEnabled(True)
+        self.setDragDropMode(QAbstractItemView.DragDropMode.DragOnly)
+
+    def mimeData(self, items):
+        mime = QMimeData()
+        if items:
+            node_id = items[0].data(0, Qt.ItemDataRole.UserRole)
+            # Default text representation
+            mime.setText(f"app.{node_id}")
+            # Specific node ID mime data
+            mime.setData("application/x-homi-node-id", str(node_id).encode("utf-8"))
+        return mime
+
+
 class HierarchyDock(QWidget):
-    node_selected = Signal(str)      # Emits node_id
+    node_selected = Signal(str)          # Emits node_id
     node_delete_requested = Signal(str)  # Emits node_id to delete
 
     def __init__(self, parent=None):
@@ -27,7 +47,7 @@ class HierarchyDock(QWidget):
         header.setStyleSheet("font-weight: bold; font-size: 13px; color: #4ecdc4; padding: 4px;")
         layout.addWidget(header)
 
-        self.tree = QTreeWidget(self)
+        self.tree = HierarchyTreeWidget(self)
         self.tree.setHeaderLabels(["Node ID", "Type"])
         self.tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.tree.setStyleSheet("""
@@ -45,7 +65,6 @@ class HierarchyDock(QWidget):
         self.tree.itemSelectionChanged.connect(self._on_selection_changed)
         layout.addWidget(self.tree)
 
-        # Bottom toolbar with Delete button
         btn_layout = QHBoxLayout()
         self.btn_delete = QPushButton("🗑️ Delete Node")
         self.btn_delete.setStyleSheet("""

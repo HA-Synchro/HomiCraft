@@ -1,7 +1,8 @@
 """
 HomiCraft IDE Main Window
 The central visual development environment integrating Canvas, Hierarchy,
-Inspector, Script Editor, App Runner, and Standalone Exporter.
+FileSystem Dock, Inspector, Multi-Script Editor, App Runner, and Standalone Exporter.
+Supports full Godot-style dock rearranging, nesting, tab merging, and drag-and-drop script attachment.
 """
 
 import os
@@ -14,7 +15,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout, QToolBar, QPushButton, QLabel, QFileDialog,
     QPlainTextEdit, QScrollArea, QMessageBox, QCheckBox
 )
-from PySide6.QtCore import Qt, QProcess, QKeyCombination
+from PySide6.QtCore import Qt, QProcess, QByteArray
 from PySide6.QtGui import QAction, QIcon, QKeySequence
 
 from core.schema import (
@@ -25,6 +26,7 @@ from core.registry import WIDGET_REGISTRY
 from editor.canvas import DesignCanvas
 from editor.palette import WidgetPalette
 from editor.hierarchy import HierarchyDock
+from editor.filesystem import FileSystemDock
 from editor.inspector import InspectorDock
 from editor.code_editor import ScriptEditorTab
 from editor.export_dialog import ExportDialog
@@ -34,7 +36,7 @@ class HomiCraftEditorWindow(QMainWindow):
     def __init__(self, project_dir: Optional[str] = None):
         super().__init__()
         self.setWindowTitle("HomiCraft — Software Engine")
-        self.resize(1340, 840)
+        self.resize(1420, 880)
 
         self.project_dir: Optional[str] = None
         self.project_config: ProjectConfig = ProjectConfig()
@@ -43,9 +45,16 @@ class HomiCraftEditorWindow(QMainWindow):
         # Background runner process (F5)
         self.runner_process: Optional[QProcess] = None
 
+        # Full dock flexibility: allow nesting, tab grouping, and moving everywhere!
+        self.setDockOptions(
+            QMainWindow.DockOption.AnimatedDocks |
+            QMainWindow.DockOption.AllowNestedDocks |
+            QMainWindow.DockOption.AllowTabbedDocks |
+            QMainWindow.DockOption.GroupedDragging
+        )
+
         self._init_ui()
 
-        # Load initial project or default demo
         if project_dir and os.path.isdir(project_dir):
             self.load_project(project_dir)
         else:
@@ -60,6 +69,14 @@ class HomiCraftEditorWindow(QMainWindow):
             QMainWindow {
                 background-color: #16161c;
                 color: #e0e0e0;
+            }
+            QMainWindow::separator {
+                background: #2b2b38;
+                width: 4px;
+                height: 4px;
+            }
+            QMainWindow::separator:hover {
+                background: #4ecdc4;
             }
             QToolBar {
                 background-color: #202028;
@@ -106,7 +123,7 @@ class HomiCraftEditorWindow(QMainWindow):
             }
         """)
 
-        # 1. Central Tab Widget (Visual Canvas + Script Editor)
+        # Central Workspace Tabs (Canvas + Script Editor)
         self.center_tabs = QTabWidget(self)
         self.setCentralWidget(self.center_tabs)
 
@@ -120,17 +137,13 @@ class HomiCraftEditorWindow(QMainWindow):
         self.canvas_scroll.setWidget(self.canvas)
         self.center_tabs.addTab(self.canvas_scroll, "🎨 Visual Canvas")
 
-        # Tab 1: Script Editor
+        # Tab 1: Multi-Script Editor (Godot style)
         self.script_tab = ScriptEditorTab(self)
-        self.center_tabs.addTab(self.script_tab, "🐍 Script Editor (main.py)")
+        self.center_tabs.addTab(self.script_tab, "🐍 Script Workspace")
 
-        # 2. Docks
+        # Docks & Toolbar
         self._setup_docks()
-
-        # 3. Toolbar
         self._setup_toolbar()
-
-        # 4. Wire signals between components
         self._connect_signals()
 
     def _setup_toolbar(self) -> None:
@@ -138,12 +151,10 @@ class HomiCraftEditorWindow(QMainWindow):
         toolbar.setMovable(False)
         self.addToolBar(toolbar)
 
-        # Open Project
         btn_open = QPushButton("📁 Open")
         btn_open.clicked.connect(self._on_open_project_clicked)
         toolbar.addWidget(btn_open)
 
-        # Save Project (Ctrl+S)
         btn_save = QPushButton("💾 Save (Ctrl+S)")
         btn_save.clicked.connect(self.save_current_project)
         btn_save.setShortcut(QKeySequence("Ctrl+S"))
@@ -151,13 +162,11 @@ class HomiCraftEditorWindow(QMainWindow):
 
         toolbar.addSeparator()
 
-        # Duplicate (Ctrl+D)
         btn_dup = QPushButton("📋 Duplicate (Ctrl+D)")
         btn_dup.clicked.connect(self._on_duplicate_clicked)
         btn_dup.setShortcut(QKeySequence("Ctrl+D"))
         toolbar.addWidget(btn_dup)
 
-        # Center Alignment Quick Buttons
         btn_center_h = QPushButton("↔ Center H")
         btn_center_h.clicked.connect(self._align_center_horizontal)
         toolbar.addWidget(btn_center_h)
@@ -168,7 +177,6 @@ class HomiCraftEditorWindow(QMainWindow):
 
         toolbar.addSeparator()
 
-        # Run Button (F5)
         self.btn_run = QPushButton("▶ Run (F5)")
         self.btn_run.setStyleSheet("""
             QPushButton {
@@ -184,7 +192,6 @@ class HomiCraftEditorWindow(QMainWindow):
         self.btn_run.setShortcut(QKeySequence("F5"))
         toolbar.addWidget(self.btn_run)
 
-        # Stop Button
         self.btn_stop = QPushButton("⏹ Stop")
         self.btn_stop.setStyleSheet("""
             QPushButton {
@@ -202,7 +209,6 @@ class HomiCraftEditorWindow(QMainWindow):
 
         toolbar.addSeparator()
 
-        # Export Standalone .EXE
         btn_export = QPushButton("📦 Export .EXE")
         btn_export.setStyleSheet("""
             QPushButton {
@@ -219,60 +225,167 @@ class HomiCraftEditorWindow(QMainWindow):
 
         toolbar.addSeparator()
 
-        # Grid Toggle
+        btn_reset_layout = QPushButton("📐 Reset Layout")
+        btn_reset_layout.setToolTip("Restore default Godot dock layout")
+        btn_reset_layout.clicked.connect(self.reset_default_layout)
+        toolbar.addWidget(btn_reset_layout)
+
         chk_grid = QCheckBox("Grid Snap (10px)")
         chk_grid.setChecked(True)
         chk_grid.toggled.connect(lambda state: setattr(self.canvas, "grid_enabled", state) or self.canvas.overlay.update())
         toolbar.addWidget(chk_grid)
 
     def _setup_docks(self) -> None:
-        # Left Dock: Palette & Hierarchy
-        self.dock_left = QDockWidget("Project & Hierarchy", self)
-        self.dock_left.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
-        left_tabs = QTabWidget()
-        
-        self.palette = WidgetPalette(self)
-        self.hierarchy = HierarchyDock(self)
-        left_tabs.addTab(self.palette, "Widgets")
-        left_tabs.addTab(self.hierarchy, "Hierarchy")
-        self.dock_left.setWidget(left_tabs)
-        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.dock_left)
+        dock_features = (
+            QDockWidget.DockWidgetFeature.DockWidgetMovable |
+            QDockWidget.DockWidgetFeature.DockWidgetFloatable |
+            QDockWidget.DockWidgetFeature.DockWidgetClosable
+        )
 
-        # Right Dock: Inspector
+        # 1. Top-Left Dock: Hierarchy & Widget Palette tabs
+        self.dock_scene = QDockWidget("Scene & Widgets", self)
+        self.dock_scene.setObjectName("dock_scene")
+        self.dock_scene.setAllowedAreas(Qt.DockWidgetArea.AllDockWidgetAreas)
+        self.dock_scene.setFeatures(dock_features)
+        
+        scene_tabs = QTabWidget()
+        self.hierarchy = HierarchyDock(self)
+        self.palette = WidgetPalette(self)
+        scene_tabs.addTab(self.hierarchy, "Hierarchy")
+        scene_tabs.addTab(self.palette, "Widgets")
+        self.dock_scene.setWidget(scene_tabs)
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.dock_scene)
+
+        # 2. Bottom-Left Dock: FileSystem (res://) — Godot Style
+        self.dock_filesystem = QDockWidget("FileSystem (res://)", self)
+        self.dock_filesystem.setObjectName("dock_filesystem")
+        self.dock_filesystem.setAllowedAreas(Qt.DockWidgetArea.AllDockWidgetAreas)
+        self.dock_filesystem.setFeatures(dock_features)
+        
+        self.filesystem = FileSystemDock(self)
+        self.dock_filesystem.setWidget(self.filesystem)
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.dock_filesystem)
+
+        # 3. Right Dock: Property Inspector
         self.dock_right = QDockWidget("Property Inspector", self)
-        self.dock_right.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
+        self.dock_right.setObjectName("dock_right")
+        self.dock_right.setAllowedAreas(Qt.DockWidgetArea.AllDockWidgetAreas)
+        self.dock_right.setFeatures(dock_features)
+        
         self.inspector = InspectorDock(self)
         self.dock_right.setWidget(self.inspector)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.dock_right)
 
-        # Bottom Dock: Output Console
+        # 4. Bottom Dock: Output & Debug Console
         self.dock_bottom = QDockWidget("Output & Debug Console", self)
-        self.dock_bottom.setAllowedAreas(Qt.DockWidgetArea.BottomDockWidgetArea)
+        self.dock_bottom.setObjectName("dock_bottom")
+        self.dock_bottom.setAllowedAreas(Qt.DockWidgetArea.AllDockWidgetAreas)
+        self.dock_bottom.setFeatures(dock_features)
+        
         self.console = QPlainTextEdit(self)
         self.console.setReadOnly(True)
         self.console.setStyleSheet("background-color: #121217; color: #a4b0be; font-family: Consolas; font-size: 11px;")
         self.dock_bottom.setWidget(self.console)
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.dock_bottom)
 
+    def reset_default_layout(self) -> None:
+        """Restores the classic Godot layout arrangement."""
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.dock_scene)
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.dock_filesystem)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.dock_right)
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.dock_bottom)
+        
+        self.dock_scene.show()
+        self.dock_filesystem.show()
+        self.dock_right.show()
+        self.dock_bottom.show()
+        self.log("Restored default dock layout.")
+
     def _connect_signals(self) -> None:
-        # Palette spawns widget
         self.palette.widget_spawn_requested.connect(self._spawn_widget)
 
-        # Canvas selection, modification, delete, duplicate, double-click
         self.canvas.node_selected.connect(self._on_canvas_node_selected)
         self.canvas.node_modified.connect(self._on_canvas_node_modified)
         self.canvas.node_delete_requested.connect(self._delete_node_by_id)
         self.canvas.node_duplicate_requested.connect(self._duplicate_node_by_id)
-        self.canvas.node_double_clicked.connect(self._on_canvas_double_clicked)
+        self.canvas.script_dropped_on_node.connect(self._on_script_dropped_on_node)
 
-        # Hierarchy selection & deletion
         self.hierarchy.node_selected.connect(self.canvas.select_node_by_id)
         self.hierarchy.node_delete_requested.connect(self._delete_node_by_id)
 
-        # Inspector updates & resize
+        # FileSystem dock signals
+        self.filesystem.open_file_requested.connect(self._on_filesystem_file_opened)
+        self.filesystem.script_created.connect(self._on_script_created)
+        self.filesystem.file_renamed.connect(self._on_file_renamed)
+        self.filesystem.file_deleted.connect(self._on_file_deleted)
+
+        # Inspector interactions
         self.inspector.property_changed.connect(self._on_inspector_property_changed)
         self.inspector.connect_signal_requested.connect(self._on_connect_signal_requested)
+        self.inspector.disconnect_signal_requested.connect(self._on_disconnect_signal_requested)
+        self.inspector.jump_to_code_requested.connect(self._on_jump_to_code_requested)
+        self.inspector.attach_script_requested.connect(self._on_attach_script_requested)
+        self.inspector.detach_script_requested.connect(self._on_detach_script_requested)
+        self.inspector.script_dropped_on_node.connect(self._on_script_dropped_on_node)
         self.inspector.window_resized.connect(self._on_window_resized)
+
+    def _on_script_dropped_on_node(self, node_id: str, filename: str, full_path: str) -> None:
+        # Load script into workspace tab
+        if os.path.exists(full_path):
+            with open(full_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            self.script_tab.open_script(filename, content)
+        else:
+            self.script_tab.open_script(filename, "")
+
+        self.log(f"Attached '{filename}' to node '{node_id}' via drag-and-drop!")
+
+    def _on_filesystem_file_opened(self, file_path: str) -> None:
+        if not os.path.isfile(file_path):
+            return
+
+        fname = os.path.basename(file_path)
+
+        if file_path.endswith(".py"):
+            with open(file_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            self.script_tab.open_script(fname, content)
+            self.center_tabs.setCurrentWidget(self.script_tab)
+            self.log(f"Opened script '{fname}' in editor.")
+
+        elif file_path.endswith(".ui.json"):
+            try:
+                self.root_node = load_scene(file_path)
+                self.canvas.set_scene(self.root_node, self.project_config.window_width, self.project_config.window_height)
+                self.hierarchy.populate(self.root_node)
+                self.center_tabs.setCurrentWidget(self.canvas_scroll)
+                self.log(f"Loaded scene '{fname}' into canvas.")
+            except Exception as e:
+                self.log(f"Failed to load scene: {e}")
+
+        else:
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+                self.script_tab.open_script(fname, content)
+                self.center_tabs.setCurrentWidget(self.script_tab)
+            except Exception:
+                pass
+
+    def _on_script_created(self, file_path: str) -> None:
+        fname = os.path.basename(file_path)
+        self.log(f"Created new Python script '{fname}'")
+
+    def _on_file_renamed(self, old_path: str, new_path: str) -> None:
+        old_name = os.path.basename(old_path)
+        new_name = os.path.basename(new_path)
+        self.script_tab.rename_script(old_name, new_name)
+        self.log(f"Renamed '{old_name}' -> '{new_name}'")
+
+    def _on_file_deleted(self, file_path: str) -> None:
+        fname = os.path.basename(file_path)
+        self.script_tab.close_script(fname)
+        self.log(f"Deleted '{fname}'")
 
     def _spawn_widget(self, type_name: str) -> None:
         meta = WIDGET_REGISTRY.get(type_name)
@@ -297,6 +410,8 @@ class HomiCraftEditorWindow(QMainWindow):
             y=max(20, spawn_y),
             width=meta.default_size[0],
             height=meta.default_size[1],
+            script=None,
+            signals={},
             properties=dict(meta.default_props)
         )
 
@@ -304,7 +419,7 @@ class HomiCraftEditorWindow(QMainWindow):
         self.canvas.rebuild_visuals()
         self.hierarchy.populate(self.root_node, active_node_id=node.id)
         self.canvas.select_node_by_id(node.id)
-        self.log(f"Added widget: {node.id} ({node.type})")
+        self.log(f"Added new {node.type}: '{node.id}' (Unconnected)")
 
     def _duplicate_node_by_id(self, node_id: str) -> None:
         if not self.root_node or node_id == self.root_node.id:
@@ -319,7 +434,6 @@ class HomiCraftEditorWindow(QMainWindow):
         if not target_node:
             return
 
-        # Deep copy node
         new_node = copy.deepcopy(target_node)
         counter = 1
         base_id = target_node.type.lower()
@@ -330,6 +444,7 @@ class HomiCraftEditorWindow(QMainWindow):
             new_id = f"{base_id}_{counter}"
 
         new_node.id = new_id
+        new_node.signals = {}
         new_node.x = min(self.canvas.width() - new_node.width, target_node.x + 20)
         new_node.y = min(self.canvas.height() - new_node.height, target_node.y + 20)
 
@@ -371,14 +486,6 @@ class HomiCraftEditorWindow(QMainWindow):
     def _on_canvas_node_modified(self, node: WidgetNode) -> None:
         self.inspector.inspect_node(node)
 
-    def _on_canvas_double_clicked(self, node: WidgetNode) -> None:
-        meta = WIDGET_REGISTRY.get(node.type)
-        if meta and meta.supported_signals:
-            primary_sig = meta.supported_signals[0]
-            cb_name = node.signals.get(primary_sig, f"on_{node.id}_{primary_sig}")
-            node.signals[primary_sig] = cb_name
-            self._on_connect_signal_requested(node.id, primary_sig, cb_name)
-
     def _on_inspector_property_changed(self, node: WidgetNode) -> None:
         self.canvas.rebuild_visuals()
         self.hierarchy.populate(self.root_node, active_node_id=node.id)
@@ -389,10 +496,55 @@ class HomiCraftEditorWindow(QMainWindow):
         self.canvas.setFixedSize(width, height)
         self.log(f"Resized canvas window to {width}x{height}")
 
-    def _on_connect_signal_requested(self, node_id: str, sig_name: str, callback_name: str) -> None:
+    def _on_connect_signal_requested(self, node_id: str, sig_name: str, callback_name: str, target_script: str) -> None:
         self.center_tabs.setCurrentWidget(self.script_tab)
-        self.script_tab.editor.append_callback_scaffold(callback_name, sig_name)
-        self.log(f"Linked signal '{node_id}.{sig_name}' -> '{callback_name}()'")
+        if target_script not in self.script_tab.editors and self.project_dir:
+            target_path = os.path.join(self.project_dir, target_script)
+            if os.path.isfile(target_path):
+                with open(target_path, "r", encoding="utf-8") as f:
+                    self.script_tab.open_script(target_script, f.read())
+            else:
+                self.script_tab.open_script(target_script, f'"""\n{target_script} — Controller Script\n"""\n\ndef _ready(app):\n    pass\n')
+        self.script_tab.append_callback_scaffold(target_script, callback_name, sig_name)
+        self.log(f"Connected signal '{node_id}.{sig_name}' -> '{callback_name}()' in {target_script}")
+
+    def _on_disconnect_signal_requested(self, node_id: str, sig_name: str) -> None:
+        if self.root_node:
+            for child in self.root_node.children:
+                if child.id == node_id:
+                    child.signals.pop(sig_name, None)
+                    break
+        self.canvas.rebuild_visuals()
+        self.log(f"Disconnected signal '{node_id}.{sig_name}'")
+
+    def _on_jump_to_code_requested(self, target_script: str, callback_name: str) -> None:
+        self.center_tabs.setCurrentWidget(self.script_tab)
+        if callback_name:
+            self.script_tab.jump_to_function(target_script, callback_name)
+        else:
+            self.script_tab.open_script(target_script)
+
+    def _on_attach_script_requested(self, node_id: str) -> None:
+        node = self.canvas.selected_node
+        if not node or node.id != node_id:
+            return
+
+        script_name = f"{node_id}.py"
+        node.script = script_name
+
+        script_content = f'"""\nDedicated Controller Script for {node_id} ({node.type})\n"""\n\ndef _ready(app):\n    pass\n'
+        self.script_tab.open_script(script_name, script_content)
+        self.center_tabs.setCurrentWidget(self.script_tab)
+        self.inspector.inspect_node(node)
+        self.log(f"Attached script '{script_name}' to node '{node_id}'")
+
+    def _on_detach_script_requested(self, node_id: str) -> None:
+        node = self.canvas.selected_node
+        if not node or node.id != node_id:
+            return
+        node.script = None
+        self.inspector.inspect_node(node)
+        self.log(f"Detached script from node '{node_id}'")
 
     def _delete_node_by_id(self, node_id: str) -> None:
         if not self.root_node or node_id == self.root_node.id:
@@ -413,7 +565,7 @@ class HomiCraftEditorWindow(QMainWindow):
         self.root_node = WidgetNode(id="root_window", type="Window")
         self.canvas.set_scene(self.root_node, 600, 400)
         self.hierarchy.populate(self.root_node)
-        self.script_tab.load_code("# HomiCraft App Script\n\ndef _ready(app):\n    pass\n")
+        self.script_tab.open_script("main.py", "# HomiCraft App Script\n\ndef _ready(app):\n    pass\n")
 
     def load_project(self, project_dir: str) -> None:
         self.project_dir = os.path.abspath(project_dir)
@@ -431,14 +583,27 @@ class HomiCraftEditorWindow(QMainWindow):
 
         self.canvas.set_scene(self.root_node, self.project_config.window_width, self.project_config.window_height)
         self.hierarchy.populate(self.root_node)
+        self.inspector.project_dir = self.project_dir
         self.inspector.inspect_node(None)
 
-        script_file = os.path.join(self.project_dir, "main.py")
-        if os.path.exists(script_file):
-            with open(script_file, "r", encoding="utf-8") as f:
-                self.script_tab.load_code(f.read())
+        self.filesystem.set_project_dir(self.project_dir)
+
+        self.script_tab.editors.clear()
+        while self.script_tab.tab_widget.count():
+            self.script_tab.tab_widget.removeTab(0)
+
+        main_py = os.path.join(self.project_dir, "main.py")
+        if os.path.exists(main_py):
+            with open(main_py, "r", encoding="utf-8") as f:
+                self.script_tab.open_script("main.py", f.read())
         else:
-            self.script_tab.load_code("# HomiCraft App Script\n\ndef _ready(app):\n    pass\n")
+            self.script_tab.open_script("main.py", "# HomiCraft App Script\n\ndef _ready(app):\n    pass\n")
+
+        for fname in os.listdir(self.project_dir):
+            if fname.endswith(".py") and fname != "main.py":
+                fpath = os.path.join(self.project_dir, fname)
+                with open(fpath, "r", encoding="utf-8") as f:
+                    self.script_tab.open_script(fname, f.read())
 
         self.setWindowTitle(f"HomiCraft — {self.project_config.name} ({self.project_dir})")
         self.log(f"Loaded project from {self.project_dir}")
@@ -452,18 +617,16 @@ class HomiCraftEditorWindow(QMainWindow):
 
         os.makedirs(self.project_dir, exist_ok=True)
 
-        # 1. Save project.json
         proj_path = os.path.join(self.project_dir, "project.json")
         save_project_config(proj_path, self.project_config)
 
-        # 2. Save scene file
         scene_path = os.path.join(self.project_dir, self.project_config.entry_scene)
         save_scene(scene_path, self.root_node)
 
-        # 3. Save main.py
-        script_path = os.path.join(self.project_dir, "main.py")
-        with open(script_path, "w", encoding="utf-8") as f:
-            f.write(self.script_tab.get_code())
+        for fname, content in self.script_tab.get_all_scripts().items():
+            fpath = os.path.join(self.project_dir, fname)
+            with open(fpath, "w", encoding="utf-8") as f:
+                f.write(content)
 
         self.log(f"Project saved successfully to {self.project_dir}")
 

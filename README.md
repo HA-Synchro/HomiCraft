@@ -6,16 +6,41 @@
 
 ## 🚀 Quick Start
 
-### 1. Launch the HomiCraft Visual Editor
-Open PowerShell or your command line inside `C:\Users\ocean\Documents\GitHub\HomiCraft`:
+### 1. Launch via Standalone Executable (`HomiCraft.exe`)
+You can launch the editor without Python installed by running the standalone executable directly:
+
+```powershell
+dist\HomiCraft\HomiCraft.exe
+```
+Or double-click **`HomiCraft.exe`** directly from Windows Explorer!
+
+### 2. Launch via Python (Project Manager Hub)
+If you prefer running from source:
 
 ```powershell
 python homi_editor.py
 ```
 
-This launches the full HomiCraft IDE loaded with the included **Counter & Slider Demo App**.
+When started without arguments, HomiCraft opens the **Project Manager** (Godot style):
+* **Select & Edit:** Browse existing projects, double-click or press **✏️ Edit Project** to open the full IDE.
+* **➕ New Project:** Create new projects anywhere on your drive with your choice of template:
+  * **Empty Project (Clean Slate)**
+  * **Counter & Controls Demo** (Preconfigured widgets and signal scripts)
+* **▶ Run Standalone:** Launch any project instantly without loading the full editor.
+* **📂 Import / Scan:** Import existing folders into your project list.
+* **📝 Rename Project:** Rename projects directly with auto-updating `project.json`.
+* **🔍 Show in Explorer:** Jump straight to the project folder on disk.
+* **🗑️ Remove from List / 💥 Delete Files:** Safely remove projects from recent list or permanently delete files.
+* **🏠 Return to Project Manager:** While inside the editor, click **"🏠 Projects"** in the top toolbar anytime to switch projects.
 
-### 2. Run an App Standalone (Without Editor)
+### 2. Launch Editor Directly for a Project
+You can also open the editor directly for any project from the command line:
+
+```powershell
+python homi_editor.py examples/counter_app
+```
+
+### 3. Run an App Standalone (Without Editor)
 You can run any HomiCraft project standalone via the CLI runner:
 
 ```powershell

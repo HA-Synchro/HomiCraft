@@ -1,0 +1,9 @@
+{
+  "name": "Counter Demo",
+  "version": "1.0.0",
+  "entry_scene": "main.ui.json",
+  "window_title": "HomiCraft - Interactive Counter App",
+  "window_width": 460,
+  "window_height": 520,
+  "window_resizable": false
+}

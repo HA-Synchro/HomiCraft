@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout, QToolBar, QPushButton, QLabel, QFileDialog,
     QPlainTextEdit, QScrollArea, QMessageBox, QCheckBox, QComboBox
 )
-from PySide6.QtCore import Qt, QProcess, QSettings
+from PySide6.QtCore import Qt, QProcess, QSettings, Signal
 from PySide6.QtGui import QAction, QIcon, QKeySequence
 
 from core.schema import (
@@ -24,6 +24,7 @@ from core.schema import (
     save_scene, load_scene
 )
 from core.registry import WIDGET_REGISTRY
+from core.paths import resolve_resource_path
 from editor.canvas import DesignCanvas
 from editor.palette import WidgetPalette
 from editor.hierarchy import HierarchyDock
@@ -35,6 +36,8 @@ from editor.theme import build_catppuccin_stylesheet, CATPPUCCIN_PALETTES
 
 
 class HomiCraftEditorWindow(QMainWindow):
+    project_manager_requested = Signal()
+
     def __init__(self, project_dir: Optional[str] = None):
         super().__init__()
         self.setWindowTitle("HomiCraft — Software Engine")
@@ -65,7 +68,7 @@ class HomiCraftEditorWindow(QMainWindow):
         if project_dir and os.path.isdir(project_dir):
             self.load_project(project_dir)
         else:
-            default_demo = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "examples", "counter_app"))
+            default_demo = resolve_resource_path("examples", "counter_app")
             if os.path.exists(default_demo):
                 self.load_project(default_demo)
             else:
@@ -99,6 +102,11 @@ class HomiCraftEditorWindow(QMainWindow):
         toolbar = QToolBar("Main Toolbar", self)
         toolbar.setMovable(False)
         self.addToolBar(toolbar)
+
+        btn_pm = QPushButton("🏠 Projects")
+        btn_pm.setToolTip("Return to HomiCraft Project Manager")
+        btn_pm.clicked.connect(self._on_project_manager_clicked)
+        toolbar.addWidget(btn_pm)
 
         btn_open = QPushButton("📁 Open")
         btn_open.clicked.connect(self._on_open_project_clicked)
@@ -587,6 +595,21 @@ class HomiCraftEditorWindow(QMainWindow):
 
         self.log(f"Project saved successfully to {self.project_dir}")
 
+    def _on_project_manager_clicked(self) -> None:
+        reply = QMessageBox.question(
+            self,
+            "Return to Project Manager",
+            "Save current project before returning to Project Manager?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Yes
+        )
+        if reply == QMessageBox.StandardButton.Cancel:
+            return
+        if reply == QMessageBox.StandardButton.Yes:
+            self.save_current_project()
+        
+        self.project_manager_requested.emit()
+
     def _on_open_project_clicked(self) -> None:
         chosen = QFileDialog.getExistingDirectory(self, "Open HomiCraft Project")
         if chosen:
@@ -618,7 +641,11 @@ class HomiCraftEditorWindow(QMainWindow):
         self.btn_run.setEnabled(False)
         self.btn_stop.setEnabled(True)
 
-        self.runner_process.start(sys.executable, [runner_script, self.project_dir])
+        if getattr(sys, "frozen", False):
+            self.runner_process.start(sys.executable, ["--run", self.project_dir])
+        else:
+            runner_script = resolve_resource_path("runner.py")
+            self.runner_process.start(sys.executable, [runner_script, self.project_dir])
 
     def stop_project(self) -> None:
         if self.runner_process and self.runner_process.state() == QProcess.ProcessState.Running:

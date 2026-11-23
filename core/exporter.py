@@ -9,6 +9,7 @@ import sys
 import shutil
 import subprocess
 from typing import Optional, Callable
+from core.paths import get_homi_root
 
 
 def generate_bootstrap_launcher(project_dir: str, output_script_path: str) -> None:
@@ -60,7 +61,7 @@ def build_standalone_exe(
     """Compiles the project into an executable in output_dir."""
     project_dir = os.path.abspath(project_dir)
     output_dir = os.path.abspath(output_dir)
-    homi_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    homi_root = get_homi_root()
 
     build_temp = os.path.join(output_dir, "build_temp")
     dist_temp = os.path.join(output_dir, "dist_temp")
@@ -96,8 +97,16 @@ def build_standalone_exe(
         log_callback(f"Bundling project files: {[item[0] for item in project_items]}")
 
     # 4. Construct PyInstaller command
-    cmd = [
-        sys.executable, "-m", "PyInstaller",
+    if getattr(sys, "frozen", False):
+        py_tool = shutil.which("pyinstaller") or shutil.which("python") or sys.executable
+        if py_tool.lower().endswith("pyinstaller.exe") or py_tool.lower().endswith("pyinstaller"):
+            cmd = [py_tool]
+        else:
+            cmd = [py_tool, "-m", "PyInstaller"]
+    else:
+        cmd = [sys.executable, "-m", "PyInstaller"]
+
+    cmd.extend([
         "--name", app_name,
         "--onedir",
         "--clean",
@@ -105,7 +114,7 @@ def build_standalone_exe(
         "--distpath", output_dir,
         "--workpath", os.path.join(output_dir, "temp_work"),
         "--specpath", build_temp,
-    ]
+    ])
 
     if noconsole:
         cmd.append("--noconsole")

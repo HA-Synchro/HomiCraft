@@ -2,22 +2,42 @@
 HomiCraft Embedded Python Script Editor & Multi-Script Workspace
 Provides Godot-style multi-tab script editing with Catppuccin syntax highlighting,
 line numbers, closable tabs, auto-indentation on Enter, smart Tab/Backspace,
-and drag-and-drop node references from the Scene Tree.
+drag-and-drop node references from the Scene Tree, and rich IDE code autocompletion.
 """
 
 import os
-from typing import Dict, Optional
+import re
+from typing import Dict, List, Optional, Tuple
+
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTabWidget, QPlainTextEdit,
-    QTextEdit, QPushButton, QLabel
+    QTextEdit, QPushButton, QLabel, QCompleter, QListView, QAbstractItemView
 )
 from PySide6.QtGui import (
     QFont, QTextCursor, QColor, QPainter, QSyntaxHighlighter,
-    QTextCharFormat, QKeyEvent, QDragEnterEvent, QDragMoveEvent, QDropEvent
+    QTextCharFormat, QKeyEvent, QDragEnterEvent, QDragMoveEvent, QDropEvent,
+    QStandardItemModel, QStandardItem, QIcon, QPixmap
 )
 from PySide6.QtCore import Qt, QRect, QSize, QRegularExpression
 
 from editor.theme import CATPPUCCIN_PALETTES
+
+
+def make_completion_icon(char: str, color_hex: str) -> QIcon:
+    """Generates a modern rounded category badge icon for code completion."""
+    pix = QPixmap(18, 18)
+    pix.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pix)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setBrush(QColor(color_hex))
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.drawRoundedRect(1, 1, 16, 16, 4, 4)
+    painter.setPen(QColor("#11111b"))
+    font = QFont("Consolas", 9, QFont.Weight.Bold)
+    painter.setFont(font)
+    painter.drawText(pix.rect(), Qt.AlignmentFlag.AlignCenter, char)
+    painter.end()
+    return QIcon(pix)
 
 
 class PythonSyntaxHighlighter(QSyntaxHighlighter):
@@ -121,9 +141,125 @@ class ScriptEditorWidget(QPlainTextEdit):
         self.updateRequest.connect(self.update_line_number_area)
         self.cursorPositionChanged.connect(self.highlight_current_line)
 
+        # Autocompletion setup
+        self.known_nodes: List[str] = []
+        self._init_autocompletion()
+
         self.apply_theme(flavor)
         self.update_line_number_area_width(0)
         self.highlight_current_line()
+
+    def _init_autocompletion(self):
+        self.completer = QCompleter(self)
+        self.completer.setWidget(self)
+        self.completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self.completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        self.completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        self.completer.activated.connect(self.insert_completion)
+
+        self._build_completion_models()
+        self.completer.setModel(self.general_model)
+
+    def _build_completion_models(self):
+        pal = CATPPUCCIN_PALETTES.get(self.flavor, CATPPUCCIN_PALETTES["Mocha"])
+
+        icon_kw = make_completion_icon("K", pal.get("mauve", "#cba6f7"))
+        icon_fn = make_completion_icon("f", pal.get("blue", "#89b4fa"))
+        icon_cl = make_completion_icon("C", pal.get("yellow", "#f9e2af"))
+        icon_ex = make_completion_icon("E", pal.get("peach", "#fab387"))
+        icon_wd = make_completion_icon("w", pal.get("green", "#a6e3a1"))
+        icon_pr = make_completion_icon("p", pal.get("teal", "#94e2d5"))
+        icon_sn = make_completion_icon("s", pal.get("flamingo", "#f2cdcd"))
+        icon_vr = make_completion_icon("v", pal.get("lavender", "#b4befe"))
+
+        # 1. GENERAL SCOPE MODEL
+        self.general_model = QStandardItemModel(self)
+
+        keywords = [
+            "def", "class", "import", "from", "as", "return", "pass", "if", "else", "elif",
+            "for", "while", "break", "continue", "in", "is", "not", "and", "or", "lambda",
+            "try", "except", "finally", "raise", "with", "assert", "global", "nonlocal",
+            "yield", "async", "await", "True", "False", "None"
+        ]
+        for kw in keywords:
+            self.general_model.appendRow(QStandardItem(icon_kw, kw))
+
+        builtins_fn = [
+            "print", "len", "range", "enumerate", "zip", "open", "type", "isinstance",
+            "hasattr", "getattr", "setattr", "delattr", "min", "max", "sum", "abs",
+            "round", "all", "any", "filter", "map", "sorted", "reversed", "super",
+            "property", "input", "help", "dir", "id", "__import__"
+        ]
+        for fn in builtins_fn:
+            self.general_model.appendRow(QStandardItem(icon_fn, fn))
+
+        builtin_types = ["str", "int", "float", "bool", "list", "dict", "set", "tuple", "object", "bytes", "NotImplemented"]
+        for bt in builtin_types:
+            self.general_model.appendRow(QStandardItem(icon_cl, bt))
+
+        exceptions = [
+            "ImportError", "ImportWarning", "ValueError", "TypeError", "KeyError",
+            "IndexError", "AttributeError", "FileNotFoundError", "ZeroDivisionError",
+            "Exception", "BaseException", "NotImplementedError", "RuntimeError",
+            "StopIteration", "KeyboardInterrupt", "LookupError", "NameError",
+            "OSError", "SyntaxError", "TimeoutError", "RecursionError"
+        ]
+        for ex in exceptions:
+            self.general_model.appendRow(QStandardItem(icon_ex, ex))
+
+        vars_special = ["app", "self", "_ready", "__name__", "__file__", "__doc__"]
+        for v in vars_special:
+            self.general_model.appendRow(QStandardItem(icon_vr, v))
+
+        snippets = [
+            "def _ready(app):",
+            "def on_clicked(app):",
+            "if __name__ == '__main__':",
+            "for item in items:",
+            "try:\n    pass\nexcept Exception as e:\n    pass"
+        ]
+        for sn in snippets:
+            self.general_model.appendRow(QStandardItem(icon_sn, sn))
+
+        for node_id in self.known_nodes:
+            self.general_model.appendRow(QStandardItem(icon_wd, node_id))
+
+        # 2. APP CONTEXT MODEL (after "app.")
+        self.app_model = QStandardItemModel(self)
+        self.app_model.appendRow(QStandardItem(icon_fn, "get_widget"))
+        self.app_model.appendRow(QStandardItem(icon_fn, "close"))
+        for node_id in self.known_nodes:
+            self.app_model.appendRow(QStandardItem(icon_wd, node_id))
+
+        # 3. WIDGET CONTEXT MODEL (after "widget.")
+        self.widget_model = QStandardItemModel(self)
+        widget_props = [
+            ("text", icon_pr),
+            ("enabled", icon_pr),
+            ("visible", icon_pr),
+            ("value", icon_pr),
+            ("min_value", icon_pr),
+            ("max_value", icon_pr),
+            ("step", icon_pr),
+            ("style", icon_pr),
+            ("x", icon_pr),
+            ("y", icon_pr),
+            ("width", icon_pr),
+            ("height", icon_pr),
+            ("click()", icon_fn),
+            ("show()", icon_fn),
+            ("hide()", icon_fn),
+            ("setFocus()", icon_fn),
+            ("update()", icon_fn),
+            ("setStyleSheet()", icon_fn),
+        ]
+        for name, ic in widget_props:
+            self.widget_model.appendRow(QStandardItem(ic, name))
+
+    def set_known_nodes(self, node_ids: List[str]):
+        """Updates known scene widget IDs and refreshes autocomplete models."""
+        self.known_nodes = list(node_ids)
+        self._build_completion_models()
 
     def apply_theme(self, flavor: str):
         self.flavor = flavor
@@ -140,6 +276,46 @@ class ScriptEditorWidget(QPlainTextEdit):
         self.highlighter.set_flavor(flavor)
         self.highlight_current_line()
         self.line_number_area.update()
+
+        # Style completion popup
+        if hasattr(self, "completer") and self.completer:
+            popup = self.completer.popup()
+            popup.setStyleSheet(f"""
+                QListView {{
+                    background-color: {pal["mantle"]};
+                    color: {pal["text"]};
+                    border: 1px solid {pal["surface1"]};
+                    border-radius: 8px;
+                    padding: 4px;
+                    font-family: Consolas, monospace;
+                    font-size: 12px;
+                    outline: none;
+                }}
+                QListView::item {{
+                    padding: 4px 8px;
+                    border-radius: 5px;
+                    min-height: 22px;
+                }}
+                QListView::item:selected {{
+                    background-color: {pal["surface0"]};
+                    color: {pal["blue"]};
+                    font-weight: bold;
+                }}
+                QListView::item:hover {{
+                    background-color: {pal["surface1"]};
+                }}
+                QScrollBar:vertical {{
+                    background: transparent;
+                    width: 8px;
+                    margin: 2px;
+                }}
+                QScrollBar::handle:vertical {{
+                    background: {pal["surface2"]};
+                    border-radius: 4px;
+                    min-height: 20px;
+                }}
+            """)
+            self._build_completion_models()
 
     def line_number_area_width(self):
         digits = 1
@@ -199,11 +375,107 @@ class ScriptEditorWidget(QPlainTextEdit):
             extra_selections.append(selection)
         self.setExtraSelections(extra_selections)
 
+    def get_context_before_cursor(self) -> Tuple[str, str]:
+        """Extracts (object_identifier, current_word_prefix) right before the cursor."""
+        cursor = self.textCursor()
+        block = cursor.block().text()
+        pos = cursor.positionInBlock()
+        line_up_to_cursor = block[:pos]
+
+        # Dot-completion: e.g. "app.btn" or "button_1.text"
+        match_dot = re.search(r'([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z0-9_]*)$', line_up_to_cursor)
+        if match_dot:
+            return match_dot.group(1), match_dot.group(2)
+
+        # Standard word completion: e.g. "imp", "de"
+        match_word = re.search(r'([A-Za-z_][A-Za-z0-9_]*)$', line_up_to_cursor)
+        if match_word:
+            return '', match_word.group(1)
+
+        return '', ''
+
+    def insert_completion(self, completion: str):
+        """Inserts selected completion string, replacing current word prefix."""
+        if not self.completer:
+            return
+        tc = self.textCursor()
+        obj_name, prefix = self.get_context_before_cursor()
+
+        if prefix:
+            tc.movePosition(QTextCursor.MoveOperation.Left, QTextCursor.MoveMode.KeepAnchor, len(prefix))
+
+        tc.insertText(completion)
+        self.setTextCursor(tc)
+
+    def trigger_completion(self, force: bool = False):
+        """Evaluates cursor context and pops up autocompletion suggestions."""
+        if not self.completer:
+            return
+
+        obj_name, prefix = self.get_context_before_cursor()
+
+        # Select appropriate model based on dot context
+        if obj_name == "app":
+            self.completer.setModel(self.app_model)
+        elif obj_name in self.known_nodes or obj_name.endswith(("_btn", "_lbl", "_slider", "button", "label", "slider", "proxy")):
+            self.completer.setModel(self.widget_model)
+        else:
+            self.completer.setModel(self.general_model)
+
+        # Should show if explicitly forced (Ctrl+Space), prefix typed >= 1, or right after dot
+        should_show = force or (len(prefix) >= 1) or (obj_name and len(prefix) == 0)
+
+        if should_show:
+            self.completer.setCompletionPrefix(prefix)
+            m = self.completer.completionModel()
+            if m.rowCount() > 0:
+                self.completer.popup().setCurrentIndex(m.index(0, 0))
+                cr = self.cursorRect()
+                popup_width = max(260, self.completer.popup().sizeHintForColumn(0) + 45)
+                cr.setWidth(min(420, popup_width))
+                self.completer.complete(cr)
+            else:
+                self.completer.popup().hide()
+        else:
+            if self.completer.popup().isVisible():
+                self.completer.popup().hide()
+
     def keyPressEvent(self, event: QKeyEvent):
         key = event.key()
+
+        # 1. Autocompletion navigation & selection
+        if self.completer and self.completer.popup().isVisible():
+            if key in (Qt.Key.Key_Enter, Qt.Key.Key_Return, Qt.Key.Key_Tab):
+                index = self.completer.popup().currentIndex()
+                if not index.isValid():
+                    index = self.completer.completionModel().index(0, 0)
+                if index.isValid():
+                    completion = index.data(Qt.ItemDataRole.DisplayRole)
+                    self.insert_completion(completion)
+                self.completer.popup().hide()
+                event.accept()
+                return
+
+            if key == Qt.Key.Key_Escape:
+                self.completer.popup().hide()
+                event.accept()
+                return
+
+            if key in (Qt.Key.Key_Up, Qt.Key.Key_Down, Qt.Key.Key_PageUp, Qt.Key.Key_PageDown):
+                self.completer.popup().keyPressEvent(event)
+                event.accept()
+                return
+
+        # 2. Manual trigger shortcut: Ctrl+Space
+        is_shortcut = bool((event.modifiers() & Qt.KeyboardModifier.ControlModifier) and key == Qt.Key.Key_Space)
+        if is_shortcut:
+            self.trigger_completion(force=True)
+            event.accept()
+            return
+
         cursor = self.textCursor()
 
-        # 1. ENTER / RETURN KEY: Auto-Indentation on Enter!
+        # 3. ENTER / RETURN KEY: Auto-Indentation on Enter!
         if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             block = cursor.block()
             line_text = block.text()
@@ -220,10 +492,12 @@ class ScriptEditorWidget(QPlainTextEdit):
             cursor.insertText("\n" + indent)
             self.setTextCursor(cursor)
             self.ensureCursorVisible()
+            if self.completer and self.completer.popup().isVisible():
+                self.completer.popup().hide()
             event.accept()
             return
 
-        # 2. TAB KEY: Insert 4 spaces or indent selection
+        # 4. TAB KEY: Insert 4 spaces or indent selection
         if key == Qt.Key.Key_Tab:
             if cursor.hasSelection():
                 start = cursor.selectionStart()
@@ -244,7 +518,7 @@ class ScriptEditorWidget(QPlainTextEdit):
             event.accept()
             return
 
-        # 3. BACKTAB (SHIFT+TAB): Un-indent by 4 spaces
+        # 5. BACKTAB (SHIFT+TAB): Un-indent by 4 spaces
         if key == Qt.Key.Key_Backtab:
             cursor.beginEditBlock()
             start = cursor.selectionStart()
@@ -272,7 +546,7 @@ class ScriptEditorWidget(QPlainTextEdit):
             event.accept()
             return
 
-        # 4. BACKSPACE: Smart delete 4 spaces
+        # 6. BACKSPACE: Smart delete 4 spaces
         if key == Qt.Key.Key_Backspace and not cursor.hasSelection():
             col = cursor.positionInBlock()
             line_text = cursor.block().text()[:col]
@@ -280,11 +554,16 @@ class ScriptEditorWidget(QPlainTextEdit):
                 cursor.setPosition(cursor.position() - 4, QTextCursor.MoveMode.KeepAnchor)
                 cursor.removeSelectedText()
                 event.accept()
+                self.trigger_completion()
                 return
 
+        # Normal key processing
         super().keyPressEvent(event)
 
-    # 5. DRAG & DROP NODES FROM SCENE TREE (Godot style!)
+        # Trigger or update autocompletion after typing
+        self.trigger_completion()
+
+    # 7. DRAG & DROP NODES FROM SCENE TREE (Godot style!)
     def dragEnterEvent(self, event: QDragEnterEvent):
         mime = event.mimeData()
         if mime.hasFormat("application/x-homi-node-id") or (mime.hasText() and mime.text().startswith("app.")):
@@ -351,6 +630,7 @@ class ScriptEditorTab(QWidget):
     def __init__(self, parent=None, flavor: str = "Mocha"):
         super().__init__(parent)
         self.flavor = flavor
+        self.known_nodes: List[str] = []
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -362,6 +642,12 @@ class ScriptEditorTab(QWidget):
         layout.addWidget(self.tab_widget)
 
         self.editors: Dict[str, ScriptEditorWidget] = {}
+
+    def set_known_nodes(self, node_ids: List[str]):
+        """Propagates known node IDs to all active editor tabs."""
+        self.known_nodes = list(node_ids)
+        for ed in self.editors.values():
+            ed.set_known_nodes(self.known_nodes)
 
     def apply_theme(self, flavor: str):
         self.flavor = flavor
@@ -377,6 +663,7 @@ class ScriptEditorTab(QWidget):
             return self.editors[filename]
 
         editor = ScriptEditorWidget(self, self.flavor)
+        editor.set_known_nodes(self.known_nodes)
         if content is not None:
             editor.setPlainText(content)
         self.editors[filename] = editor

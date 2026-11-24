@@ -383,6 +383,7 @@ class HomiCraftEditorWindow(QMainWindow):
         self.root_node.children.append(node)
         self.canvas.rebuild_visuals()
         self.hierarchy.populate(self.root_node, active_node_id=node.id)
+        self.update_script_autocomplete_nodes()
         self.canvas.select_node_by_id(node.id)
         self.log(f"Added new {node.type}: '{node.id}' (Unconnected)")
 
@@ -416,6 +417,7 @@ class HomiCraftEditorWindow(QMainWindow):
         self.root_node.children.append(new_node)
         self.canvas.rebuild_visuals()
         self.hierarchy.populate(self.root_node, active_node_id=new_node.id)
+        self.update_script_autocomplete_nodes()
         self.canvas.select_node_by_id(new_node.id)
         self.log(f"Duplicated {node_id} -> {new_node.id}")
 
@@ -519,7 +521,24 @@ class HomiCraftEditorWindow(QMainWindow):
         self.canvas.rebuild_visuals()
         self.hierarchy.populate(self.root_node)
         self.inspector.inspect_node(None)
+        self.update_script_autocomplete_nodes()
         self.log(f"Deleted node: {node_id}")
+
+    def get_all_node_ids(self) -> list[str]:
+        ids = []
+        if not self.root_node:
+            return ids
+        def _collect(node):
+            if node.id and node.id != "root_window":
+                ids.append(node.id)
+            for child in node.children:
+                _collect(child)
+        _collect(self.root_node)
+        return ids
+
+    def update_script_autocomplete_nodes(self) -> None:
+        if hasattr(self, "script_tab") and self.script_tab:
+            self.script_tab.set_known_nodes(self.get_all_node_ids())
 
     def log(self, text: str) -> None:
         self.console.appendPlainText(f"[HomiCraft] {text}")
@@ -530,6 +549,7 @@ class HomiCraftEditorWindow(QMainWindow):
         self.root_node = WidgetNode(id="root_window", type="Window")
         self.canvas.set_scene(self.root_node, 600, 400)
         self.hierarchy.populate(self.root_node)
+        self.update_script_autocomplete_nodes()
         self.script_tab.open_script("main.py", "# HomiCraft App Script\n\ndef _ready(app):\n    pass\n")
 
     def load_project(self, project_dir: str) -> None:
@@ -548,6 +568,7 @@ class HomiCraftEditorWindow(QMainWindow):
 
         self.canvas.set_scene(self.root_node, self.project_config.window_width, self.project_config.window_height)
         self.hierarchy.populate(self.root_node)
+        self.update_script_autocomplete_nodes()
         self.inspector.project_dir = self.project_dir
         self.inspector.inspect_node(None)
 

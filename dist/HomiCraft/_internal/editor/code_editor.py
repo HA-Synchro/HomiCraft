@@ -1,6 +1,6 @@
 """
 HomiCraft Embedded Python Script Editor & Multi-Script Workspace
-Provides Godot-style multi-tab script editing with Catppuccin syntax highlighting,
+Provides multi-tab script editing with Catppuccin syntax highlighting,
 line numbers, closable tabs, auto-indentation on Enter, smart Tab/Backspace,
 drag-and-drop node references from the Scene Tree, and rich IDE code autocompletion.
 """
@@ -563,7 +563,7 @@ class ScriptEditorWidget(QPlainTextEdit):
         # Trigger or update autocompletion after typing
         self.trigger_completion()
 
-    # 7. DRAG & DROP NODES FROM SCENE TREE (Godot style!)
+    # 7. DRAG & DROP NODES FROM SCENE TREE
     def dragEnterEvent(self, event: QDragEnterEvent):
         mime = event.mimeData()
         if mime.hasFormat("application/x-homi-node-id") or (mime.hasText() and mime.text().startswith("app.")):
@@ -642,6 +642,26 @@ class ScriptEditorTab(QWidget):
         layout.addWidget(self.tab_widget)
 
         self.editors: Dict[str, ScriptEditorWidget] = {}
+        self.font_family = "Consolas"
+        self.font_size = 11
+        self.scale_percent = 100
+
+    def set_font_settings(self, family: str = "Consolas", size: int = 11, scale_percent: int = 100):
+        """Updates font family, point size, and scaling across all open editor tabs."""
+        self.font_family = family
+        self.font_size = size
+        self.scale_percent = scale_percent
+
+        scale = max(0.5, min(3.0, scale_percent / 100.0))
+        effective_size = max(8, round(size * scale))
+
+        for ed in self.editors.values():
+            font = QFont(family, effective_size)
+            font.setStyleHint(QFont.StyleHint.Monospace)
+            ed.setFont(font)
+            ed.setTabStopDistance(max(16, round(32 * scale)))
+            ed.update_line_number_area_width(0)
+            ed.highlight_current_line()
 
     def set_known_nodes(self, node_ids: List[str]):
         """Propagates known node IDs to all active editor tabs."""
@@ -663,6 +683,12 @@ class ScriptEditorTab(QWidget):
             return self.editors[filename]
 
         editor = ScriptEditorWidget(self, self.flavor)
+        scale = max(0.5, min(3.0, self.scale_percent / 100.0))
+        effective_size = max(8, round(self.font_size * scale))
+        font = QFont(self.font_family, effective_size)
+        font.setStyleHint(QFont.StyleHint.Monospace)
+        editor.setFont(font)
+        editor.setTabStopDistance(max(16, round(32 * scale)))
         editor.set_known_nodes(self.known_nodes)
         if content is not None:
             editor.setPlainText(content)

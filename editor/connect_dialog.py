@@ -1,6 +1,6 @@
 """
 HomiCraft Signal Connection Dialog
-Matches Godot's 'Connect a Signal to a Method' dialog.
+Connects widget signals to callback methods in user scripts.
 Detects already attached scripts (e.g. newbutton.py), lists existing functions,
 and never creates a new script if one is already attached!
 """
@@ -31,7 +31,7 @@ class SignalConnectDialog(QDialog):
         self.attached_script = attached_script
         self.project_dir = project_dir
 
-        self.setWindowTitle("Connect Signal to Script — Godot Style")
+        self.setWindowTitle("Connect Signal to Script")
         self.resize(500, 310)
         self.setStyleSheet("""
             QDialog {

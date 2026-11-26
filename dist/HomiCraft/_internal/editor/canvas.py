@@ -2,7 +2,7 @@
 HomiCraft Visual Designer Canvas
 Provides an interactive 2D design surface where widgets can be clicked,
 dragged, resized, duplicated (Ctrl+D), deleted, and visually arranged.
-Supports dragging .py scripts directly onto widgets to attach scripts (Godot style).
+Supports dragging .py scripts directly onto widgets to attach scripts.
 """
 
 import os
@@ -303,7 +303,7 @@ class DesignCanvas(QFrame):
 
         super().keyPressEvent(event)
 
-    # DRAG & DROP PYTHON SCRIPTS ONTO CANVAS WIDGETS (Godot style)
+    # DRAG & DROP PYTHON SCRIPTS ONTO CANVAS WIDGETS
     def dragEnterEvent(self, event: QDragEnterEvent):
         if event.mimeData().hasUrls():
             for url in event.mimeData().urls():

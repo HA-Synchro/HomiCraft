@@ -1,10 +1,10 @@
 """
 HomiCraft Demo Application Script (main.py)
-Notice how similar this is to GDScript attached to a Godot scene root!
+Controller logic for the counter and controls scene.
 """
 
 def _ready(app):
-    """Called when the application first starts, identical to Godot's _ready()."""
+    """Called when the application first starts up."""
     app.state["count"] = 0
     print("[HomiCraft] Application initialized successfully!")
 

@@ -26,7 +26,7 @@ class HomiAppContext:
         app.button_1.text = "Clicked!"
         app.button_1.enabled = False
         app.slider.value = 80
-    Just like `get_node("button_1")` in Godot!
+    Access widgets by ID directly or via app context.
     """
     def __init__(self, window: HomiRuntimeWindow):
         self._window = window

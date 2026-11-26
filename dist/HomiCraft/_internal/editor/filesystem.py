@@ -1,5 +1,5 @@
 """
-HomiCraft FileSystem Dock (Godot Style)
+HomiCraft FileSystem Dock
 Provides an interactive project directory browser where developers can create,
 rename, delete, drag & drop, and organize Python scripts, UI scenes, and project assets.
 """
@@ -68,11 +68,11 @@ class FileSystemDock(QWidget):
         self.tree.customContextMenuRequested.connect(self._open_context_menu)
         self.tree.doubleClicked.connect(self._on_item_double_clicked)
 
-        # ENABLE DRAGGING (Godot style: drag .py files from FileSystem)
+        # ENABLE DRAGGING (drag .py files from FileSystem)
         self.tree.setDragEnabled(True)
         self.tree.setDragDropMode(QAbstractItemView.DragDropMode.DragOnly)
 
-        # Hide extra columns to look clean like Godot's FileSystem dock
+        # Hide extra columns for a clean view
         self.tree.setHeaderHidden(False)
         self.tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         for col in range(1, 4):

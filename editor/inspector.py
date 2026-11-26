@@ -1,7 +1,7 @@
 """
 HomiCraft Inspector & Signals Dock
 Provides real-time property editing for widgets and the root window,
-along with authentic Godot-style drag & drop script attachment & signal event binding.
+along with drag & drop script attachment & signal event binding.
 """
 
 import os
@@ -181,7 +181,7 @@ class InspectorDock(QWidget):
         type_lbl.setStyleSheet("color: #4ecdc4;")
         self.form_layout.addRow("Type:", type_lbl)
 
-        # Drag & Drop Script Target (Godot style!)
+        # Drag & Drop Script Target
         script_slot = ScriptDropSlot(node.script, self)
         script_slot.script_dropped.connect(lambda fname, fpath: self._on_script_dropped(fname, fpath))
         script_slot.attach_clicked.connect(lambda: self.attach_script_requested.emit(node.id))
@@ -249,7 +249,7 @@ class InspectorDock(QWidget):
             style_edit.textChanged.connect(lambda t: self._update_prop("styleSheet", t))
             self.form_layout.addRow("Style (CSS):", style_edit)
 
-        # 4. Authentic Godot-style Signals Section
+        # 4. Signals & Events Section
         if meta and meta.supported_signals:
             self.form_layout.addRow(QLabel("<b>⚡ Signals (Events)</b>"))
             for sig in meta.supported_signals:

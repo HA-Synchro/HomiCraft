@@ -1,7 +1,7 @@
 """
 HomiCraft Hierarchy Tree Dock
-Displays the Scene Tree of widgets, matching Godot's Scene dock.
-Supports selecting, renaming, deleting, and DRAGGING nodes into the Script Editor
+Displays the Scene Tree of widgets.
+Supports selecting, renaming, deleting, and dragging nodes into the Script Editor
 to automatically generate object references!
 """
 
@@ -15,7 +15,7 @@ from core.schema import WidgetNode
 
 
 class HierarchyTreeWidget(QTreeWidget):
-    """Draggable Scene Tree (Godot style). Allows dragging nodes directly into scripts."""
+    """Draggable Scene Tree. Allows dragging nodes directly into scripts."""
 
     def __init__(self, parent=None):
         super().__init__(parent)

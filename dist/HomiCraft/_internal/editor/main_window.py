@@ -16,8 +16,8 @@ from PySide6.QtWidgets import (
     QHBoxLayout, QToolBar, QPushButton, QLabel, QFileDialog,
     QPlainTextEdit, QScrollArea, QMessageBox, QCheckBox, QComboBox
 )
-from PySide6.QtCore import Qt, QProcess, QSettings, Signal
-from PySide6.QtGui import QAction, QIcon, QKeySequence
+from PySide6.QtCore import Qt, QProcess, QSettings, Signal, QTimer
+from PySide6.QtGui import QAction, QIcon, QKeySequence, QFont
 
 from core.schema import (
     ProjectConfig, WidgetNode, save_project_config, load_project_config,
@@ -32,6 +32,9 @@ from editor.filesystem import FileSystemDock
 from editor.inspector import InspectorDock
 from editor.code_editor import ScriptEditorTab
 from editor.export_dialog import ExportDialog
+from editor.settings_dialog import (
+    load_editor_settings, save_editor_settings, HomiCraftSettingsDialog
+)
 from editor.theme import build_catppuccin_stylesheet, CATPPUCCIN_PALETTES
 
 
@@ -40,6 +43,7 @@ class HomiCraftEditorWindow(QMainWindow):
 
     def __init__(self, project_dir: Optional[str] = None):
         super().__init__()
+        self.setObjectName("HomiCraftMainWindow")
         self.setWindowTitle("HomiCraft — Software Engine")
         self.resize(1420, 880)
 
@@ -50,9 +54,11 @@ class HomiCraftEditorWindow(QMainWindow):
         # Background runner process (F5)
         self.runner_process: Optional[QProcess] = None
 
-        # Current Catppuccin flavor
-        settings = QSettings("HomiCraft", "Theme")
-        self.current_flavor = settings.value("flavor", "Mocha")
+        # Load persisted editor settings
+        self.settings_data = load_editor_settings()
+        self.current_flavor = str(self.settings_data.get("theme_flavor", "Mocha"))
+        self.ui_scale = int(self.settings_data.get("ui_scale", 100))
+        self._has_restored_layout = False
 
         # Full dock flexibility: allow nesting, tab grouping, and moving everywhere!
         self.setDockOptions(
@@ -86,10 +92,12 @@ class HomiCraftEditorWindow(QMainWindow):
         self.canvas_scroll.setStyleSheet("background-color: transparent; border: none;")
 
         self.canvas = DesignCanvas(self)
+        self.canvas.grid_enabled = bool(self.settings_data.get("grid_snap_enabled", True))
+        self.canvas.grid_size = int(self.settings_data.get("grid_snap_size", 10))
         self.canvas_scroll.setWidget(self.canvas)
         self.center_tabs.addTab(self.canvas_scroll, "🎨 Visual Canvas")
 
-        # Tab 1: Multi-Script Editor (Godot style)
+        # Tab 1: Multi-Script Editor
         self.script_tab = ScriptEditorTab(self, self.current_flavor)
         self.center_tabs.addTab(self.script_tab, "🐍 Script Workspace")
 
@@ -98,8 +106,17 @@ class HomiCraftEditorWindow(QMainWindow):
         self._setup_toolbar()
         self._connect_signals()
 
+        # Restore persistent user dock layout and window geometry
+        self.restore_layout_state()
+
+        # Connect live dock change listeners for instantaneous persistence
+        for dock in (self.dock_scene, self.dock_filesystem, self.dock_right, self.dock_bottom):
+            dock.dockLocationChanged.connect(lambda *args: self.save_layout_state())
+            dock.topLevelChanged.connect(lambda *args: self.save_layout_state())
+
     def _setup_toolbar(self) -> None:
         toolbar = QToolBar("Main Toolbar", self)
+        toolbar.setObjectName("main_toolbar")
         toolbar.setMovable(False)
         self.addToolBar(toolbar)
 
@@ -176,15 +193,23 @@ class HomiCraftEditorWindow(QMainWindow):
 
         toolbar.addSeparator()
 
+        btn_settings = QPushButton("⚙️ Settings")
+        btn_settings.setToolTip("Preferences, UI Scale & Settings (Ctrl+,)")
+        btn_settings.setShortcut(QKeySequence("Ctrl+,"))
+        btn_settings.clicked.connect(self._open_settings_dialog)
+        toolbar.addWidget(btn_settings)
+
+        toolbar.addSeparator()
+
         btn_reset_layout = QPushButton("📐 Reset Layout")
-        btn_reset_layout.setToolTip("Restore default Godot dock layout")
+        btn_reset_layout.setToolTip("Restore default dock layout")
         btn_reset_layout.clicked.connect(self.reset_default_layout)
         toolbar.addWidget(btn_reset_layout)
 
-        chk_grid = QCheckBox("Grid Snap (10px)")
-        chk_grid.setChecked(True)
-        chk_grid.toggled.connect(lambda state: setattr(self.canvas, "grid_enabled", state) or self.canvas.overlay.update())
-        toolbar.addWidget(chk_grid)
+        self.chk_grid = QCheckBox(f"Grid ({self.canvas.grid_size}px)")
+        self.chk_grid.setChecked(self.canvas.grid_enabled)
+        self.chk_grid.toggled.connect(lambda state: setattr(self.canvas, "grid_enabled", state) or self.canvas.overlay.update())
+        toolbar.addWidget(self.chk_grid)
 
     def _setup_docks(self) -> None:
         dock_features = (
@@ -207,7 +232,7 @@ class HomiCraftEditorWindow(QMainWindow):
         self.dock_scene.setWidget(scene_tabs)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.dock_scene)
 
-        # 2. Bottom-Left Dock: FileSystem (res://) — Godot Style
+        # 2. Bottom-Left Dock: FileSystem (res://)
         self.dock_filesystem = QDockWidget("FileSystem (res://)", self)
         self.dock_filesystem.setObjectName("dock_filesystem")
         self.dock_filesystem.setAllowedAreas(Qt.DockWidgetArea.AllDockWidgetAreas)
@@ -239,32 +264,140 @@ class HomiCraftEditorWindow(QMainWindow):
         self.dock_bottom.setWidget(self.console)
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.dock_bottom)
 
+    def _open_settings_dialog(self) -> None:
+        dlg = HomiCraftSettingsDialog(self, self.settings_data)
+        dlg.settings_applied.connect(self.apply_all_settings)
+        dlg.reset_layout_requested.connect(self.reset_default_layout)
+        dlg.exec()
+
+    def apply_all_settings(self, cfg: dict) -> None:
+        """Applies updated preferences live across themes, UI scale, fonts, and grid."""
+        self.settings_data = cfg
+        self.ui_scale = int(cfg.get("ui_scale", 100))
+        flavor = str(cfg.get("theme_flavor", self.current_flavor))
+
+        # 1. Update theme and UI text/control scale
+        self.apply_theme(flavor, self.ui_scale)
+
+        # 2. Update theme dropdown without triggering recursive signal
+        flavor_to_idx = {"Mocha": 0, "Macchiato": 1, "Frappé": 2, "Latte": 3}
+        if hasattr(self, "combo_theme"):
+            self.combo_theme.blockSignals(True)
+            self.combo_theme.setCurrentIndex(flavor_to_idx.get(flavor, 0))
+            self.combo_theme.blockSignals(False)
+
+        # 3. Update code editor font & scale
+        self.script_tab.set_font_settings(
+            cfg.get("editor_font_family", "Consolas"),
+            int(cfg.get("editor_font_size", 11)),
+            self.ui_scale
+        )
+
+        # 4. Update canvas grid snap and step size
+        self.canvas.grid_enabled = bool(cfg.get("grid_snap_enabled", True))
+        self.canvas.grid_size = int(cfg.get("grid_snap_size", 10))
+        self.canvas.overlay.update()
+        if hasattr(self, "chk_grid"):
+            self.chk_grid.blockSignals(True)
+            self.chk_grid.setChecked(self.canvas.grid_enabled)
+            self.chk_grid.setText(f"Grid ({self.canvas.grid_size}px)")
+            self.chk_grid.blockSignals(False)
+
     def _on_theme_changed(self, index: int) -> None:
         flavors = ["Mocha", "Macchiato", "Frappé", "Latte"]
         if 0 <= index < len(flavors):
-            self.apply_theme(flavors[index])
+            self.apply_theme(flavors[index], self.ui_scale)
 
-    def apply_theme(self, flavor: str) -> None:
+    def apply_theme(self, flavor: str, scale_percent: Optional[int] = None) -> None:
         self.current_flavor = flavor
-        qss = build_catppuccin_stylesheet(flavor)
+        if scale_percent is not None:
+            self.ui_scale = scale_percent
+
+        scale = max(0.5, min(3.0, self.ui_scale / 100.0))
+        qss = build_catppuccin_stylesheet(flavor, self.ui_scale)
         self.setStyleSheet(qss)
+
+        # Scale application-wide Qt base font
+        base_pt = max(8, round(9 * scale))
+        from PySide6.QtWidgets import QApplication
+        if QApplication.instance():
+            QApplication.instance().setFont(QFont("Segoe UI", base_pt))
+
+        # Update script tabs
         self.script_tab.apply_theme(flavor)
-        
-        # Save preference
-        settings = QSettings("HomiCraft", "Theme")
-        settings.setValue("flavor", flavor)
-        self.log(f"Switched theme to Catppuccin {flavor}")
+        self.script_tab.set_font_settings(
+            self.settings_data.get("editor_font_family", "Consolas"),
+            int(self.settings_data.get("editor_font_size", 11)),
+            self.ui_scale
+        )
+
+        # Persist theme & scale in settings
+        self.settings_data["theme_flavor"] = flavor
+        self.settings_data["ui_scale"] = self.ui_scale
+        save_editor_settings(self.settings_data)
+        self.log(f"Switched theme to Catppuccin {flavor} ({self.ui_scale}% scale)")
+
+    def save_layout_state(self) -> None:
+        """Saves window geometry and dock arrangement into persistent QSettings INI file."""
+        try:
+            import shiboken6
+            if not shiboken6.isValid(self):
+                return
+        except Exception:
+            pass
+
+        if not self.settings_data.get("remember_layout", True):
+            return
+        try:
+            settings = QSettings(QSettings.Format.IniFormat, QSettings.Scope.UserScope, "HomiCraft", "Layout")
+            settings.setValue("geometry", self.saveGeometry())
+            settings.setValue("windowState", self.saveState())
+            settings.sync()
+        except Exception as e:
+            print(f"[HomiCraft] Warning: Failed to save layout state: {e}")
+
+    def restore_layout_state(self) -> bool:
+        """Restores window geometry and dock arrangement from persistent QSettings INI file."""
+        if not self.settings_data.get("remember_layout", True):
+            return False
+        try:
+            settings = QSettings(QSettings.Format.IniFormat, QSettings.Scope.UserScope, "HomiCraft", "Layout")
+            geom = settings.value("geometry")
+            state = settings.value("windowState")
+            restored = False
+            if geom:
+                self.restoreGeometry(geom)
+                restored = True
+            if state:
+                self.restoreState(state)
+                restored = True
+            return restored
+        except Exception as e:
+            print(f"[HomiCraft] Warning: Failed to restore layout state: {e}")
+            return False
+
+    def showEvent(self, event) -> None:
+        """Restores user layout seamlessly when window is first shown on screen."""
+        super().showEvent(event)
+        if not self._has_restored_layout:
+            self._has_restored_layout = True
+            QTimer.singleShot(50, self.restore_layout_state)
 
     def reset_default_layout(self) -> None:
+        """Restores default dock layout, un-floats and untabifies all docks."""
+        for dock in (self.dock_scene, self.dock_filesystem, self.dock_right, self.dock_bottom):
+            dock.setFloating(False)
+            self.removeDockWidget(dock)
+
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.dock_scene)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.dock_filesystem)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.dock_right)
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.dock_bottom)
         
-        self.dock_scene.show()
-        self.dock_filesystem.show()
-        self.dock_right.show()
-        self.dock_bottom.show()
+        for dock in (self.dock_scene, self.dock_filesystem, self.dock_right, self.dock_bottom):
+            dock.show()
+
+        self.save_layout_state()
         self.log("Restored default dock layout.")
 
     def _connect_signals(self) -> None:
@@ -614,6 +747,7 @@ class HomiCraftEditorWindow(QMainWindow):
             with open(fpath, "w", encoding="utf-8") as f:
                 f.write(content)
 
+        self.save_layout_state()
         self.log(f"Project saved successfully to {self.project_dir}")
 
     def _on_project_manager_clicked(self) -> None:
@@ -629,6 +763,7 @@ class HomiCraftEditorWindow(QMainWindow):
         if reply == QMessageBox.StandardButton.Yes:
             self.save_current_project()
         
+        self.save_layout_state()
         self.project_manager_requested.emit()
 
     def _on_open_project_clicked(self) -> None:
@@ -644,7 +779,8 @@ class HomiCraftEditorWindow(QMainWindow):
         dlg.exec()
 
     def run_project(self) -> None:
-        self.save_current_project()
+        if self.settings_data.get("auto_save_on_run", True):
+            self.save_current_project()
 
         if self.runner_process and self.runner_process.state() == QProcess.ProcessState.Running:
             self.log("Stopping previous instance...")
@@ -687,3 +823,10 @@ class HomiCraftEditorWindow(QMainWindow):
         self.log(f"Application closed (exit code: {exit_code}).")
         self.btn_run.setEnabled(True)
         self.btn_stop.setEnabled(False)
+
+    def closeEvent(self, event) -> None:
+        """Saves custom layout and shuts down child processes on close."""
+        self.save_layout_state()
+        if self.runner_process and self.runner_process.state() == QProcess.ProcessState.Running:
+            self.runner_process.kill()
+        super().closeEvent(event)

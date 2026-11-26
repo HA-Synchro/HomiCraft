@@ -44,6 +44,7 @@ def build_editor():
         "--hidden-import=editor.main_window",
         "--hidden-import=editor.palette",
         "--hidden-import=editor.project_manager",
+        "--hidden-import=editor.settings_dialog",
         "--hidden-import=editor.theme",
     ]
 

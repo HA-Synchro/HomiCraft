@@ -127,9 +127,52 @@ CATPPUCCIN_PALETTES: Dict[str, Dict[str, str]] = {
 }
 
 
-def build_catppuccin_stylesheet(flavor: str = "Mocha") -> str:
-    """Builds a complete, modern rounded QSS stylesheet for the given Catppuccin flavor."""
+def build_catppuccin_stylesheet(flavor: str = "Mocha", scale_percent: int = 100) -> str:
+    """Builds a complete, modern rounded QSS stylesheet for the given Catppuccin flavor and UI scale."""
     pal = CATPPUCCIN_PALETTES.get(flavor, CATPPUCCIN_PALETTES["Mocha"])
+    scale = max(0.5, min(3.0, scale_percent / 100.0))
+
+    f_base = max(9, round(12 * scale))
+    f_small = max(8, round(11 * scale))
+    f_btn = max(9, round(12 * scale))
+    f_title = max(10, round(13 * scale))
+
+    btn_pad_v = max(3, round(6 * scale))
+    btn_pad_h = max(6, round(14 * scale))
+    btn_radius = max(4, round(8 * scale))
+
+    dock_pad_v = max(4, round(8 * scale))
+    dock_pad_h = max(6, round(12 * scale))
+    dock_radius = max(4, round(8 * scale))
+
+    tab_pad_v = max(4, round(8 * scale))
+    tab_pad_h = max(8, round(18 * scale))
+    tab_radius = max(4, round(8 * scale))
+    tab_pane_radius = max(5, round(10 * scale))
+
+    input_pad_v = max(3, round(6 * scale))
+    input_pad_h = max(5, round(10 * scale))
+    input_radius = max(4, round(8 * scale))
+
+    item_pad_v = max(2, round(5 * scale))
+    item_pad_h = max(4, round(8 * scale))
+    item_radius = max(3, round(6 * scale))
+
+    toolbar_pad_v = max(3, round(6 * scale))
+    toolbar_pad_h = max(5, round(10 * scale))
+    toolbar_spacing = max(4, round(8 * scale))
+
+    indicator_size = max(12, round(16 * scale))
+    indicator_radius = max(3, round(4 * scale))
+    radio_radius = round(indicator_size / 2)
+
+    scroll_width = max(6, round(10 * scale))
+    scroll_radius = round(scroll_width / 2)
+
+    menu_pad = max(3, round(6 * scale))
+    menu_item_pad_v = max(3, round(6 * scale))
+    menu_item_pad_h = max(10, round(22 * scale))
+    menu_radius = max(5, round(10 * scale))
 
     return f"""
     /* --- Main Window & Core --- */
@@ -141,15 +184,15 @@ def build_catppuccin_stylesheet(flavor: str = "Mocha") -> str:
     QWidget {{
         color: {pal["text"]};
         font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-        font-size: 12px;
+        font-size: {f_base}px;
     }}
 
     /* --- Toolbar --- */
     QToolBar {{
         background-color: {pal["mantle"]};
         border-bottom: 1px solid {pal["surface0"]};
-        spacing: 8px;
-        padding: 6px 10px;
+        spacing: {toolbar_spacing}px;
+        padding: {toolbar_pad_v}px {toolbar_pad_h}px;
     }}
     QToolBar::separator {{
         background: {pal["surface1"]};
@@ -162,8 +205,9 @@ def build_catppuccin_stylesheet(flavor: str = "Mocha") -> str:
         background-color: {pal["surface0"]};
         color: {pal["text"]};
         border: 1px solid {pal["surface1"]};
-        border-radius: 8px;
-        padding: 6px 14px;
+        border-radius: {btn_radius}px;
+        padding: {btn_pad_v}px {btn_pad_h}px;
+        font-size: {f_btn}px;
         font-weight: 600;
     }}
     QPushButton:hover {{
@@ -185,7 +229,7 @@ def build_catppuccin_stylesheet(flavor: str = "Mocha") -> str:
         background-color: {pal["green"]};
         color: {pal["crust"]};
         border: none;
-        border-radius: 8px;
+        border-radius: {btn_radius}px;
         font-weight: bold;
     }}
     QPushButton#btn_run:hover {{
@@ -195,14 +239,14 @@ def build_catppuccin_stylesheet(flavor: str = "Mocha") -> str:
         background-color: {pal["red"]};
         color: {pal["crust"]};
         border: none;
-        border-radius: 8px;
+        border-radius: {btn_radius}px;
         font-weight: bold;
     }}
     QPushButton#btn_export {{
         background-color: {pal["blue"]};
         color: {pal["crust"]};
         border: none;
-        border-radius: 8px;
+        border-radius: {btn_radius}px;
         font-weight: bold;
     }}
     QPushButton#btn_export:hover {{
@@ -218,9 +262,10 @@ def build_catppuccin_stylesheet(flavor: str = "Mocha") -> str:
     QDockWidget::title {{
         background-color: {pal["surface0"]};
         color: {pal["lavender"]};
-        padding: 8px 12px;
-        border-radius: 8px;
+        padding: {dock_pad_v}px {dock_pad_h}px;
+        border-radius: {dock_radius}px;
         margin: 3px;
+        font-size: {f_title}px;
         font-weight: 600;
     }}
     QMainWindow::separator {{
@@ -236,16 +281,17 @@ def build_catppuccin_stylesheet(flavor: str = "Mocha") -> str:
     /* --- Tabs (Pill style like Catppuccin web) --- */
     QTabWidget::pane {{
         border: 1px solid {pal["surface0"]};
-        border-radius: 10px;
+        border-radius: {tab_pane_radius}px;
         background-color: {pal["base"]};
         padding: 4px;
     }}
     QTabBar::tab {{
         background: {pal["mantle"]};
         color: {pal["subtext0"]};
-        padding: 8px 18px;
+        padding: {tab_pad_v}px {tab_pad_h}px;
         margin-right: 4px;
-        border-radius: 8px;
+        border-radius: {tab_radius}px;
+        font-size: {f_base}px;
         font-weight: 600;
     }}
     QTabBar::tab:hover {{
@@ -263,13 +309,14 @@ def build_catppuccin_stylesheet(flavor: str = "Mocha") -> str:
         background-color: {pal["base"]};
         color: {pal["text"]};
         border: 1px solid {pal["surface0"]};
-        border-radius: 8px;
+        border-radius: {btn_radius}px;
         padding: 4px;
+        font-size: {f_base}px;
         outline: none;
     }}
     QTreeView::item, QTreeWidget::item {{
-        padding: 5px 8px;
-        border-radius: 6px;
+        padding: {item_pad_v}px {item_pad_h}px;
+        border-radius: {item_radius}px;
     }}
     QTreeView::item:hover, QTreeWidget::item:hover {{
         background-color: {pal["surface0"]};
@@ -285,6 +332,7 @@ def build_catppuccin_stylesheet(flavor: str = "Mocha") -> str:
         padding: 6px;
         border: none;
         border-radius: 4px;
+        font-size: {f_small}px;
         font-weight: bold;
     }}
 
@@ -293,8 +341,9 @@ def build_catppuccin_stylesheet(flavor: str = "Mocha") -> str:
         background-color: {pal["surface0"]};
         color: {pal["text"]};
         border: 1px solid {pal["surface1"]};
-        border-radius: 8px;
-        padding: 6px 10px;
+        border-radius: {input_radius}px;
+        padding: {input_pad_v}px {input_pad_h}px;
+        font-size: {f_base}px;
         font-family: Consolas, monospace;
     }}
     QLineEdit:focus, QSpinBox:focus, QComboBox:focus {{
@@ -304,22 +353,22 @@ def build_catppuccin_stylesheet(flavor: str = "Mocha") -> str:
     QComboBox::drop-down {{
         border: none;
         background-color: {pal["surface1"]};
-        width: 24px;
-        border-top-right-radius: 8px;
-        border-bottom-right-radius: 8px;
+        width: {round(24 * scale)}px;
+        border-top-right-radius: {input_radius}px;
+        border-bottom-right-radius: {input_radius}px;
     }}
 
     /* --- Scrollbars --- */
     QScrollBar:vertical {{
         background: {pal["mantle"]};
-        width: 10px;
-        border-radius: 5px;
+        width: {scroll_width}px;
+        border-radius: {scroll_radius}px;
         margin: 2px;
     }}
     QScrollBar::handle:vertical {{
         background: {pal["surface1"]};
-        min-height: 24px;
-        border-radius: 5px;
+        min-height: {round(24 * scale)}px;
+        border-radius: {scroll_radius}px;
     }}
     QScrollBar::handle:vertical:hover {{
         background: {pal["mauve"]};
@@ -329,14 +378,14 @@ def build_catppuccin_stylesheet(flavor: str = "Mocha") -> str:
     }}
     QScrollBar:horizontal {{
         background: {pal["mantle"]};
-        height: 10px;
-        border-radius: 5px;
+        height: {scroll_width}px;
+        border-radius: {scroll_radius}px;
         margin: 2px;
     }}
     QScrollBar::handle:horizontal {{
         background: {pal["surface1"]};
-        min-width: 24px;
-        border-radius: 5px;
+        min-width: {round(24 * scale)}px;
+        border-radius: {scroll_radius}px;
     }}
     QScrollBar::handle:horizontal:hover {{
         background: {pal["mauve"]};
@@ -350,12 +399,13 @@ def build_catppuccin_stylesheet(flavor: str = "Mocha") -> str:
         background-color: {pal["mantle"]};
         color: {pal["text"]};
         border: 1px solid {pal["surface1"]};
-        border-radius: 10px;
-        padding: 6px;
+        border-radius: {menu_radius}px;
+        padding: {menu_pad}px;
     }}
     QMenu::item {{
-        padding: 6px 22px;
-        border-radius: 6px;
+        padding: {menu_item_pad_v}px {menu_item_pad_h}px;
+        border-radius: {item_radius}px;
+        font-size: {f_base}px;
     }}
     QMenu::item:selected {{
         background-color: {pal["surface0"]};
@@ -371,18 +421,19 @@ def build_catppuccin_stylesheet(flavor: str = "Mocha") -> str:
     /* --- Checkboxes & RadioButtons --- */
     QCheckBox, QRadioButton {{
         color: {pal["text"]};
-        spacing: 8px;
+        spacing: {toolbar_spacing}px;
+        font-size: {f_base}px;
         font-weight: 500;
     }}
     QCheckBox::indicator, QRadioButton::indicator {{
-        width: 16px;
-        height: 16px;
+        width: {indicator_size}px;
+        height: {indicator_size}px;
         border: 1px solid {pal["surface2"]};
-        border-radius: 4px;
+        border-radius: {indicator_radius}px;
         background: {pal["surface0"]};
     }}
     QRadioButton::indicator {{
-        border-radius: 8px;
+        border-radius: {radio_radius}px;
     }}
     QCheckBox::indicator:checked, QRadioButton::indicator:checked {{
         background: {pal["mauve"]};
@@ -394,9 +445,9 @@ def build_catppuccin_stylesheet(flavor: str = "Mocha") -> str:
         background-color: {pal["crust"]};
         color: {pal["subtext1"]};
         border: 1px solid {pal["surface0"]};
-        border-radius: 8px;
+        border-radius: {btn_radius}px;
         font-family: Consolas, monospace;
-        font-size: 11px;
+        font-size: {f_small}px;
         padding: 6px;
     }}
     """

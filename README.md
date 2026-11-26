@@ -1,6 +1,23 @@
 # ⚡ HomiCraft — Visual Software Engine for Python
 
-**HomiCraft** is a Godot-inspired visual software development environment for creating native desktop applications with Python and PySide6 (Qt).
+**HomiCraft** is a modern visual software development engine for creating native desktop applications with Python and PySide6 (Qt).
+
+---
+
+## 📚 Complete Documentation Suite
+
+Comprehensive and detailed documentation is available for all features:
+
+* **📖 [Complete Developer Manual (DOCUMENTATION.md)](DOCUMENTATION.md)** — All-in-one offline guide, system architecture, API reference, and code recipes.
+* **📂 [Modular Guides (docs/)](docs/)**:
+  1. [**01: Getting Started & Project Manager**](docs/01_getting_started.md)
+  2. [**02: The Visual Editor Interface**](docs/02_editor_guide.md)
+  3. [**03: Scripting Guide & Lifecycle**](docs/03_scripting_guide.md)
+  4. [**04: Signals & Event Handling**](docs/04_signals_and_events.md)
+  5. [**05: Code Editor & Autocompletion Engine**](docs/05_code_editor_and_autocompletion.md)
+  6. [**06: Exporting Standalone Applications (.EXE)**](docs/06_exporting_standalone_apps.md)
+  7. [**07: Catppuccin Theming & UI Styling**](docs/07_catppuccin_theming.md)
+  8. [**08: Complete API & Widget Reference**](docs/08_api_and_widget_reference.md)
 
 ---
 
@@ -21,7 +38,7 @@ If you prefer running from source:
 python homi_editor.py
 ```
 
-When started without arguments, HomiCraft opens the **Project Manager** (Godot style):
+When started without arguments, HomiCraft opens the **Project Manager** hub:
 * **Select & Edit:** Browse existing projects, double-click or press **✏️ Edit Project** to open the full IDE.
 * **➕ New Project:** Create new projects anywhere on your drive with your choice of template:
   * **Empty Project (Clean Slate)**
@@ -33,14 +50,14 @@ When started without arguments, HomiCraft opens the **Project Manager** (Godot s
 * **🗑️ Remove from List / 💥 Delete Files:** Safely remove projects from recent list or permanently delete files.
 * **🏠 Return to Project Manager:** While inside the editor, click **"🏠 Projects"** in the top toolbar anytime to switch projects.
 
-### 2. Launch Editor Directly for a Project
+### 3. Launch Editor Directly for a Project
 You can also open the editor directly for any project from the command line:
 
 ```powershell
 python homi_editor.py examples/counter_app
 ```
 
-### 3. Run an App Standalone (Without Editor)
+### 4. Run an App Standalone (Without Editor)
 You can run any HomiCraft project standalone via the CLI runner:
 
 ```powershell
@@ -49,21 +66,21 @@ python runner.py examples/counter_app
 
 ---
 
-## 🛠️ Godot Concept Mapping
+## 🛠️ Core Concepts & Architecture
 
-| Godot Concept | HomiCraft Equivalent | Description |
+| Component / Concept | HomiCraft Implementation | Description |
 | :--- | :--- | :--- |
-| **Node / Control** | **Widget Component** | `Button`, `LineEdit`, `Label`, `CheckBox`, `Slider`, `ProgressBar`, `Panel` |
-| **Scene Tree** | **Scene Hierarchy Dock** | Visual tree dock showing nested components |
-| **FileSystem (res://)** | **FileSystem Dock** | Project explorer with New Script, New Folder, Rename, Delete |
-| **.tscn File** | **.ui.json File** | Clean, human-readable JSON storing layout & properties |
-| **Inspector Dock** | **Property Inspector** | Live property & geometry tweaker with CSS styling |
-| **Signals Dock** | **Signals & Events** | `clicked`, `textChanged`, `valueChanged`, `toggled` with 1-click code link |
-| **Script (.gd)** | **Python Controller (`main.py`)** | Clean Python script containing event callbacks |
-| **`$"btn"` / `get_node()`** | **`app.btn`** | Direct attribute access to any widget by its ID |
-| **`func _ready():`** | **`def _ready(app):`** | Called automatically on application startup |
-| **Play (F5)** | **Run App (F5)** | Starts project in a separate process with live log output |
-| **Export Templates** | **📦 Export .EXE** | One-click standalone Windows `.exe` packager via PyInstaller |
+| **Widgets & Controls** | **Visual Components** | `Button`, `LineEdit`, `Label`, `CheckBox`, `Slider`, `ProgressBar`, `Panel` |
+| **Scene Hierarchy** | **Scene Hierarchy Dock** | Visual tree dock showing nested components and parent-child order |
+| **FileSystem Explorer** | **FileSystem Dock (`res://`)** | Project explorer with New Script, New Folder, Rename, Delete |
+| **Declarative Layout** | **`.ui.json` Scene Files** | Clean, human-readable JSON storing layout, geometry & properties |
+| **Property Inspector** | **Property Inspector Dock** | Live property & geometry tweaker with custom CSS styling |
+| **Signals & Callbacks** | **Signals & Events** | `clicked`, `textChanged`, `valueChanged`, `toggled` with 1-click code wiring |
+| **Script Controllers** | **Python Controller (`main.py`)** | Clean Python scripts containing event callbacks and business logic |
+| **Node Referencing** | **`app.btn` or `btn`** | Direct attribute access or injected global access to any widget by its ID |
+| **Lifecycle Entry** | **`def _ready(app):`** | Called automatically on application startup when widgets are initialized |
+| **Process Runner** | **Run App (F5)** | Starts project in a separate process with live log output |
+| **Executable Exporter** | **📦 Export .EXE** | One-click standalone Windows `.exe` packager via PyInstaller |
 
 ---
 
@@ -75,13 +92,34 @@ HomiCraft now includes the complete palette suite from [catppuccin.com](https://
 * 🍨 **Catppuccin Frappé** (Soft Dark Pastel)
 * 🥛 **Catppuccin Latte** (Crisp Light Theme)
 
-Switch between them on the fly from the **`🎨 Theme`** selector in the main toolbar! The code editor, docks, rounded buttons, and inputs update their color schemes and syntax highlighting instantly.
+Switch between them on the fly from the **`🎨 Theme`** selector in the main toolbar or the **`⚙️ Settings`** window (`Ctrl+,`). The code editor, docks, rounded buttons, and inputs update their color schemes and syntax highlighting instantly.
+
+---
+
+## 🔍 Display & Text Scaling (Windows Scale Equivalent)
+
+HomiCraft includes dynamic UI scaling from **50% to 250%**:
+* Scale all application texts, buttons, tabs, docks, padding, and dialogs smoothly to match 1080p, 1440p, or 4K monitors.
+* Quick preset buttons (`75%`, `100%`, `125%`, `150%`, `175%`, `200%`) with live preview in the **`⚙️ Settings`** dialog.
+
+---
+
+## 💻 Intelligent Autocompletion Engine
+
+The built-in code editor provides IDE-grade autocompletion:
+* **Fuzzy Substring Matching**: Typing `imp` surfaces `import`, `ImportError`, `ImportWarning`, `__import__`, `NotImplemented`, etc.
+* **Category Badges**: `[K]` Keyword, `[f]` Function, `[C]` Class, `[E]` Exception, `[w]` Widget, `[p]` Property, `[s]` Snippet, `[v]` Variable.
+* **Contextual Dot Completion**:
+  * Typing `app.` lists all live scene widgets.
+  * Typing `<widget_id>.` lists all properties (`text`, `value`, `enabled`, etc.) and methods (`click()`, `setFocus()`).
+* **Live Scene Sync**: Adding, duplicating, renaming, or deleting widgets updates the autocompletion engine instantly.
+* **Keyboard Navigation**: `Ctrl + Space` to trigger, `Enter` / `Tab` to complete, `Up` / `Down` to navigate, `Escape` to dismiss.
 
 ---
 
 ## 🎮 Keyboard Shortcuts & Workflow
 
-* **Drag Node from Hierarchy to Script (Godot style):** Drag any node (e.g. `button_1`, `lbl_title`) from the Scene Hierarchy dock directly into the Script Editor!
+* **Drag Node from Hierarchy to Script:** Drag any node (e.g. `button_1`, `lbl_title`) from the Scene Hierarchy dock directly into the Script Editor!
   * On a blank line: inserts `{node_id} = app.{node_id}`
   * Inside an expression: inserts `app.{node_id}`
 * **Pythonic Object Properties:** Access and modify widget properties directly without raw C++ methods:
@@ -90,9 +128,10 @@ Switch between them on the fly from the **`🎨 Theme`** selector in the main to
   * `label.text = "Score: 100"`
   * `slider.value = 80`
   * `button_1.x += 10`, `button_1.width = 200`
-* **Drag & Drop Scripts (Godot Style):** Drag any `.py` script from the FileSystem dock directly onto the **Script slot** in the Inspector (or drop it straight onto the button on the canvas) to instantly attach it!
-* **Godot-Style Dock Customization:** All docks (Scene, FileSystem, Inspector, Debug Console) are completely unchained. You can drag the FileSystem dock next to the Output Console, tab docks together, split horizontally/vertically, or float them as independent windows. Click **"📐 Reset Layout"** in the toolbar at any time to return to the default layout.
-* **Click & Drag:** Move widgets across the canvas (10px snap grid).
+* **Drag & Drop Scripts:** Drag any `.py` script from the FileSystem dock directly onto the **Script slot** in the Inspector (or drop it straight onto the button on the canvas) to instantly attach it!
+* **Modular Dock Customization & Persistent Layouts:** All docks (Scene, FileSystem, Inspector, Debug Console) are completely unchained. You can drag the FileSystem dock next to the Output Console, tab docks together, split horizontally/vertically, or float them as independent windows. HomiCraft automatically remembers your exact custom layout and window geometry across sessions! Click **"📐 Reset Layout"** in the toolbar at any time to return to the default layout.
+* **⚙️ Editor Settings (`Ctrl + ,`):** Configure UI scale, themes, fonts, canvas grid, and build options in a single modal hub.
+* **Click & Drag:** Move widgets across the canvas (grid snapping).
 * **Corner Drag:** Resize widgets from the bottom-right handle.
 * **Arrow Keys:** Nudge selected widget by grid units (hold **Shift** for 1px micro-adjustments).
 * **Ctrl + D:** Duplicate the selected widget with an auto-incremented ID.

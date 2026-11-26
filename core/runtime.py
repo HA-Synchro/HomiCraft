@@ -26,7 +26,7 @@ class HomiAppContext:
         app.button_1.text = "Clicked!"
         app.button_1.enabled = False
         app.slider.value = 80
-    Just like `get_node("button_1")` in Godot!
+    Access widgets by ID directly or via app context.
     """
     def __init__(self, window: HomiRuntimeWindow):
         self._window = window
@@ -237,20 +237,40 @@ class HomiRuntimeWindow(QMainWindow):
 
             sig = inspect.signature(handler)
             param_count = len(sig.parameters)
+            param_names = list(sig.parameters.keys())
 
-            def make_slot(fn, params_len):
+            def make_slot(fn, params_len, p_names, w_inst):
                 def slot(*args):
                     try:
                         # Re-ensure module globals before slot execution
                         self._inject_globals_into_modules()
+                        call_args = list(args)
+
+                        # If signal emitted no arguments (like QTextEdit.textChanged),
+                        # but handler expects text/value, supply it from the widget automatically
+                        if not call_args:
+                            if hasattr(w_inst, "toPlainText"):
+                                call_args = [w_inst.toPlainText()]
+                            elif hasattr(w_inst, "text"):
+                                call_args = [w_inst.text()]
+                            elif hasattr(w_inst, "value"):
+                                call_args = [w_inst.value()]
+                            elif hasattr(w_inst, "isChecked"):
+                                call_args = [w_inst.isChecked()]
+
                         if params_len == 0:
                             fn()
                         elif params_len == 1:
-                            fn(self.context)
+                            # If parameter name explicitly expects value instead of app (e.g. def on_change(text):)
+                            if p_names and p_names[0] in ("text", "value", "checked", "val", "is_checked") and call_args:
+                                fn(call_args[0])
+                            else:
+                                fn(self.context)
                         else:
-                            fn(self.context, *args)
+                            # 2+ parameters: pass app context as first arg, followed by event payload
+                            fn(self.context, *call_args[:params_len - 1])
                     except Exception as e:
                         print(f"[HomiCraft Runtime Error in {fn.__name__}]: {e}", file=sys.stderr)
                 return slot
 
-            qt_signal.connect(make_slot(handler, param_count))
+            qt_signal.connect(make_slot(handler, param_count, param_names, qt_instance))

@@ -1,6 +1,6 @@
 """
 HomiCraft Project Manager
-Godot-style Project Hub to create, browse, import, edit, run, and manage HomiCraft projects.
+Project Hub to create, browse, import, edit, run, and manage HomiCraft projects.
 Styled with official Catppuccin palettes and rounded-corner UI components.
 """
 
@@ -28,7 +28,7 @@ from editor.theme import build_catppuccin_stylesheet, CATPPUCCIN_PALETTES
 
 
 class ProjectCardWidget(QWidget):
-    """Visual card for each project in the list (Godot style)."""
+    """Visual card for each project in the list."""
 
     def __init__(self, name: str, path: str, version: str = "1.0.0", parent=None):
         super().__init__(parent)
@@ -297,7 +297,7 @@ class HomiCraftProjectManager(QMainWindow):
         search_layout.addWidget(self.inp_search)
         main_layout.addLayout(search_layout)
 
-        # Body: Left = Projects List, Right = Action Buttons (Godot style)
+        # Body: Left = Projects List, Right = Action Buttons
         body_layout = QHBoxLayout()
         body_layout.setSpacing(16)
 
